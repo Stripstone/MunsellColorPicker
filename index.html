@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#090909" />
+  <title>Soil Color</title>
+  <style>
+    :root {
+      --bg: #090909;
+      --panel: #171514;
+      --panel-2: #211e1c;
+      --paper: #f1efed;
+      --paper-2: #e5e1dd;
+      --ink: #0d0b0a;
+      --muted: #8c8782;
+      --line: rgba(255,255,255,.10);
+      --pill: rgba(255,255,255,.10);
+      --good: #18d38d;
+      --warn-bg: #fdecc8;
+      --warn-ink: #5d3b05;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: #fff;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input { font: inherit; }
+    button { touch-action: manipulation; }
+
+    .app {
+      height: 100dvh;
+      height: 100vh;
+      display: grid;
+      grid-template-rows: calc(3rem + env(safe-area-inset-top)) 1fr;
+      background: var(--bg);
+    }
+
+    .topbar {
+      padding: calc(.5rem + env(safe-area-inset-top)) .75rem .5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      background: #080808;
+      min-width: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: .55rem;
+      min-width: 0;
+    }
+    .dot { width: .65rem; height: .65rem; border-radius: 50%; background: var(--good); flex: 0 0 auto; }
+    .title { font-weight: 900; font-size: .98rem; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .badge {
+      display: none;
+      border-radius: 999px;
+      background: var(--pill);
+      color: #d4d0cc;
+      padding: .12rem .5rem;
+      font-size: .64rem;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    @media (min-width: 520px) { .badge { display: inline-block; } }
+
+    .actions { display: flex; align-items: center; gap: .45rem; flex: 0 0 auto; }
+    .static-pill, .clear-btn {
+      border: 0;
+      border-radius: 999px;
+      background: var(--pill);
+      color: #e9e5e0;
+      font-size: .72rem;
+      font-weight: 850;
+      padding: .48rem .75rem;
+      white-space: nowrap;
+    }
+    .clear-btn:active { transform: translateY(1px); }
+
+    main {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 46fr 32fr 22fr;
+      overflow: hidden;
+    }
+
+    .camera-panel {
+      position: relative;
+      overflow: hidden;
+      background: radial-gradient(circle at 55% 35%, #2d2925, #10100f 70%);
+      min-height: 0;
+      touch-action: none;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      background: #000;
+    }
+
+    .camera-overlay {
+      pointer-events: none;
+      position: absolute;
+      inset: 0;
+      opacity: .22;
+      background-image:
+        radial-gradient(circle at 20% 30%, rgba(255,255,255,.22) 0 2px, transparent 2px),
+        radial-gradient(circle at 70% 65%, rgba(0,0,0,.40) 0 2px, transparent 2px);
+      background-size: 24px 24px, 31px 31px;
+      mix-blend-mode: screen;
+    }
+
+    .camera-label {
+      position: absolute;
+      z-index: 4;
+      left: .75rem;
+      top: .75rem;
+      max-width: calc(100% - 1.5rem);
+      border-radius: 999px;
+      background: rgba(0,0,0,.58);
+      color: #fff;
+      padding: .45rem .75rem;
+      font-size: .82rem;
+      font-weight: 900;
+      backdrop-filter: blur(8px);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sample-ring {
+      position: absolute;
+      z-index: 5;
+      width: 5.6rem;
+      height: 5.6rem;
+      border: 3px solid white;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 0 9999px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.25) inset;
+      display: none;
+      pointer-events: none;
+    }
+    .sample-ring.show { display: block; }
+    .sample-ring::before {
+      content: "";
+      position: absolute;
+      inset: 35%;
+      border: 2px solid white;
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px rgba(0,0,0,.25);
+    }
+
+    .camera-error {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      text-align: center;
+      background: #111;
+      color: #eee;
+      z-index: 3;
+    }
+    .camera-error.show { display: flex; }
+    .camera-error strong { display: block; font-size: 1rem; margin-bottom: .4rem; }
+    .camera-error span { display: block; color: #aaa; font-size: .85rem; line-height: 1.35; max-width: 28rem; }
+
+    .readout-panel {
+      display: grid;
+      grid-template-columns: 46fr 54fr;
+      min-height: 0;
+      border-top: 1px solid rgba(255,255,255,.1);
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      background: var(--paper);
+      color: var(--ink);
+    }
+
+    .readout {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: .48rem;
+      padding: .9rem 1rem;
+    }
+    .label-small {
+      font-size: .62rem;
+      font-weight: 950;
+      letter-spacing: .22em;
+      color: #7b746e;
+      text-transform: uppercase;
+    }
+    .munsell {
+      font-size: clamp(2.15rem, 9vw, 4.2rem);
+      line-height: .93;
+      font-weight: 1000;
+      letter-spacing: -.06em;
+      word-break: keep-all;
+    }
+    .subtext {
+      color: #504c48;
+      font-size: .92rem;
+      font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+      font-weight: 850;
+      line-height: 1.15;
+    }
+    .quality-pill {
+      width: fit-content;
+      border-radius: 999px;
+      background: #dedbd8;
+      color: #2d2925;
+      font-size: .75rem;
+      font-weight: 950;
+      padding: .36rem .68rem;
+    }
+    .quality-pill.warn { background: var(--warn-bg); color: var(--warn-ink); }
+    .note {
+      color: #807b75;
+      font-size: .76rem;
+      line-height: 1.25;
+    }
+
+    .clump-wrap {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-left: 1px solid #d7d2ce;
+      background: var(--paper-2);
+      padding: .25rem;
+      overflow: hidden;
+    }
+    .clump-wrap svg { width: 100%; height: 100%; display: block; }
+
+    .slider-panel {
+      min-height: 0;
+      background: #090909;
+      padding: .52rem 1rem .6rem;
+      overflow: hidden;
+    }
+    .slider-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .75rem;
+      margin-bottom: .38rem;
+    }
+    .slider-title {
+      font-size: .72rem;
+      font-weight: 950;
+      letter-spacing: .18em;
+      color: #99938d;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .estimate-pill {
+      border-radius: 999px;
+      background: var(--pill);
+      color: #d1ccc7;
+      font-size: .64rem;
+      font-weight: 950;
+      padding: .3rem .65rem;
+      white-space: nowrap;
+    }
+    .sliders {
+      height: calc(100% - 1.45rem);
+      min-height: 0;
+      display: grid;
+      grid-template-rows: repeat(3, minmax(0, 1fr));
+      gap: .42rem;
+    }
+    .slider-row {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 6.2rem 1fr 2.75rem;
+      gap: .55rem;
+      align-items: center;
+      border-radius: 1.25rem;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.08);
+      padding: .42rem .75rem;
+    }
+    .slider-label { min-width: 0; }
+    .slider-label strong { display: block; font-size: .78rem; line-height: 1.05; }
+    .slider-label span { display: block; color: #837e78; font-size: .62rem; line-height: 1.2; font-weight: 850; margin-top: .1rem; }
+    .slider-row input { width: 100%; accent-color: #fff; }
+    .slider-value { text-align: right; color: #d4d0cc; font-size: .72rem; font-weight: 950; font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace; }
+
+    .hidden-canvas { display: none; }
+
+    @media (max-height: 690px) {
+      .readout { gap: .32rem; padding: .65rem .85rem; }
+      .note { display: none; }
+      .slider-panel { padding-top: .35rem; }
+      .slider-row { border-radius: 1rem; padding: .32rem .65rem; }
+      .slider-label strong { font-size: .72rem; }
+      .slider-label span { font-size: .58rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="dot"></div>
+        <div class="title">Soil Color</div>
+        <div class="badge">approximate only</div>
+      </div>
+      <div class="actions">
+        <div class="static-pill">Live camera only</div>
+        <button id="clearBtn" class="clear-btn" type="button">Clear adj.</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="cameraPanel" class="camera-panel">
+        <video id="video" playsinline muted autoplay></video>
+        <div class="camera-overlay"></div>
+        <div id="cameraLabel" class="camera-label">Starting camera · tap to collect color</div>
+        <div id="sampleRing" class="sample-ring" aria-hidden="true"></div>
+        <div id="cameraError" class="camera-error">
+          <div>
+            <strong>Camera unavailable</strong>
+            <span>Allow camera access and open this page over HTTPS. GitHub Pages should work once permission is granted.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="readout-panel">
+        <div class="readout">
+          <div class="label-small">Munsell preview</div>
+          <div id="munsell" class="munsell">—</div>
+          <div class="subtext">approx camera color</div>
+          <div id="quality" class="quality-pill">tap to collect</div>
+          <div class="note">new collection resets corrections</div>
+        </div>
+        <div class="clump-wrap">
+          <svg viewBox="0 0 520 320" role="img" aria-label="Rendered soil clump preview">
+            <defs>
+              <filter id="grain" x="-20%" y="-20%" width="140%" height="140%">
+                <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="11" result="noise" />
+                <feColorMatrix in="noise" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 .28 0" result="grainLayer" />
+                <feBlend in="SourceGraphic" in2="grainLayer" mode="multiply" />
+              </filter>
+              <radialGradient id="clumpLight" cx="32%" cy="24%" r="70%">
+                <stop id="clumpLightStop" offset="0%" stop-color="rgb(150,132,105)" />
+                <stop id="clumpMidStop" offset="48%" stop-color="rgb(114,90,62)" />
+                <stop id="clumpDarkStop" offset="100%" stop-color="rgb(76,58,38)" />
+              </radialGradient>
+              <mask id="clumpMask">
+                <path d="M76 166 C48 125 67 71 124 64 C160 29 231 23 284 54 C337 38 404 61 424 107 C482 121 502 171 475 211 C488 263 433 304 365 292 C320 322 239 315 204 287 C144 304 82 269 86 218 C61 205 56 181 76 166Z" fill="white" />
+              </mask>
+            </defs>
+            <ellipse cx="270" cy="270" rx="170" ry="30" fill="rgba(0,0,0,.16)" />
+            <g mask="url(#clumpMask)">
+              <rect x="35" y="25" width="455" height="285" fill="url(#clumpLight)" filter="url(#grain)" />
+              <g opacity=".25">
+                <circle cx="151" cy="124" r="12" fill="rgba(255,255,255,.35)" />
+                <circle cx="225" cy="92" r="8" fill="rgba(0,0,0,.35)" />
+                <circle cx="330" cy="116" r="14" fill="rgba(255,255,255,.20)" />
+                <circle cx="384" cy="189" r="11" fill="rgba(0,0,0,.32)" />
+                <circle cx="182" cy="217" r="9" fill="rgba(0,0,0,.28)" />
+                <circle cx="282" cy="236" r="13" fill="rgba(255,255,255,.17)" />
+              </g>
+              <g fill="none" stroke-linecap="round" opacity=".2">
+                <path d="M117 143 C172 115 238 119 289 151" stroke="rgba(255,255,255,.45)" stroke-width="8" />
+                <path d="M186 214 C255 181 339 192 406 231" stroke="rgba(0,0,0,.45)" stroke-width="9" />
+                <path d="M292 91 C350 83 403 107 438 146" stroke="rgba(255,255,255,.32)" stroke-width="7" />
+              </g>
+            </g>
+            <path d="M76 166 C48 125 67 71 124 64 C160 29 231 23 284 54 C337 38 404 61 424 107 C482 121 502 171 475 211 C488 263 433 304 365 292 C320 322 239 315 204 287 C144 304 82 269 86 218 C61 205 56 181 76 166Z" fill="none" stroke="rgba(40,30,20,.32)" stroke-width="5" />
+          </svg>
+        </div>
+      </section>
+
+      <section class="slider-panel">
+        <div class="slider-head">
+          <div class="slider-title">Adjust color</div>
+          <div class="estimate-pill">color estimate</div>
+        </div>
+        <div class="sliders">
+          <label class="slider-row">
+            <span class="slider-label"><strong>Hue</strong><span>10YR</span></span>
+            <input id="hue" type="range" min="-24" max="24" value="0" />
+            <span id="hueVal" class="slider-value">0</span>
+          </label>
+          <label class="slider-row">
+            <span class="slider-label"><strong>Value</strong><span>2</span></span>
+            <input id="value" type="range" min="-22" max="22" value="0" />
+            <span id="valueVal" class="slider-value">0</span>
+          </label>
+          <label class="slider-row">
+            <span class="slider-label"><strong>Chroma</strong><span>/2</span></span>
+            <input id="chroma" type="range" min="-22" max="22" value="0" />
+            <span id="chromaVal" class="slider-value">0</span>
+          </label>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <canvas id="canvas" class="hidden-canvas"></canvas>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const cameraPanel = document.getElementById('cameraPanel');
+    const cameraLabel = document.getElementById('cameraLabel');
+    const cameraError = document.getElementById('cameraError');
+    const sampleRing = document.getElementById('sampleRing');
+    const munsellEl = document.getElementById('munsell');
+    const qualityEl = document.getElementById('quality');
+    const clearBtn = document.getElementById('clearBtn');
+    const sliders = {
+      hue: document.getElementById('hue'),
+      value: document.getElementById('value'),
+      chroma: document.getElementById('chroma')
+    };
+    const sliderVals = {
+      hue: document.getElementById('hueVal'),
+      value: document.getElementById('valueVal'),
+      chroma: document.getElementById('chromaVal')
+    };
+
+    const clumpStops = {
+      light: document.getElementById('clumpLightStop'),
+      mid: document.getElementById('clumpMidStop'),
+      dark: document.getElementById('clumpDarkStop')
+    };
+
+    const HUE_FAMILIES = [
+      { family: 'R', angle: 5 },
+      { family: 'YR', angle: 35 },
+      { family: 'Y', angle: 58 },
+      { family: 'GY', angle: 90 },
+      { family: 'G', angle: 125 },
+      { family: 'BG', angle: 180 },
+      { family: 'B', angle: 230 },
+      { family: 'PB', angle: 260 },
+      { family: 'P', angle: 292 },
+      { family: 'RP', angle: 330 }
+    ];
+
+    let baseRgb = null;
+    let lastQuality = { label: 'tap to collect', tone: 'neutral' };
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function rgbToHsl(r, g, b) {
+      r /= 255; g /= 255; b /= 255;
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      let h = 0;
+      let s = 0;
+      const l = (max + min) / 2;
+      if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h *= 60;
+      }
+      return { h, s: s * 100, l: l * 100 };
+    }
+
+    function hslToRgb(h, s, l) {
+      h = ((h % 360) + 360) % 360;
+      s /= 100; l /= 100;
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+      const m = l - c / 2;
+      let r = 0, g = 0, b = 0;
+      if (h < 60) [r, g, b] = [c, x, 0];
+      else if (h < 120) [r, g, b] = [x, c, 0];
+      else if (h < 180) [r, g, b] = [0, c, x];
+      else if (h < 240) [r, g, b] = [0, x, c];
+      else if (h < 300) [r, g, b] = [x, 0, c];
+      else [r, g, b] = [c, 0, x];
+      return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+    }
+
+    function hueDistance(a, b) {
+      const diff = Math.abs(a - b) % 360;
+      return Math.min(diff, 360 - diff);
+    }
+
+    function approximateMunsell(rgb, adjustments) {
+      const base = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+      const h = (base.h + adjustments.hue + 360) % 360;
+      const s = clamp(base.s + adjustments.chroma, 0, 100);
+      const l = clamp(base.l + adjustments.value, 4, 92);
+
+      const nearest = HUE_FAMILIES.reduce((best, candidate) => {
+        const distance = hueDistance(h, candidate.angle);
+        return distance < best.distance ? { ...candidate, distance } : best;
+      }, { family: 'YR', angle: 35, distance: 999 });
+
+      const normalizedDelta = ((h - nearest.angle + 540) % 360) - 180;
+      let hueStep = 10;
+      if (normalizedDelta < -10) hueStep = 2.5;
+      else if (normalizedDelta < -2) hueStep = 5;
+      else if (normalizedDelta < 7) hueStep = 7.5;
+
+      const value = clamp(Math.round((l / 100) * 8.5), 1, 8);
+      const chroma = clamp(Math.round((s / 100) * 8.5), 0, 8);
+      const adjustedRgb = hslToRgb(h, s, l);
+      return { label: `${hueStep}${nearest.family} ${value}/${chroma}`, adjustedRgb };
+    }
+
+    function rgbCss(rgb) {
+      return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+    }
+
+    function updateClump(rgb) {
+      const lighter = [Math.min(rgb[0] + 36, 255), Math.min(rgb[1] + 32, 255), Math.min(rgb[2] + 24, 255)];
+      const darker = [Math.max(rgb[0] - 38, 0), Math.max(rgb[1] - 34, 0), Math.max(rgb[2] - 28, 0)];
+      clumpStops.light.setAttribute('stop-color', rgbCss(lighter));
+      clumpStops.mid.setAttribute('stop-color', rgbCss(rgb));
+      clumpStops.dark.setAttribute('stop-color', rgbCss(darker));
+    }
+
+    function getAdjustments() {
+      return {
+        hue: Number(sliders.hue.value),
+        value: Number(sliders.value.value),
+        chroma: Number(sliders.chroma.value)
+      };
+    }
+
+    function setSliderLabels() {
+      Object.keys(sliders).forEach(key => {
+        const value = Number(sliders[key].value);
+        sliderVals[key].textContent = value > 0 ? `+${value}` : String(value);
+      });
+    }
+
+    function clearAdjustments() {
+      sliders.hue.value = 0;
+      sliders.value.value = 0;
+      sliders.chroma.value = 0;
+      setSliderLabels();
+      renderEstimate();
+    }
+
+    function qualityFromSample(rgb, variance, adjustments) {
+      const hsl = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+      const heavyCorrection = Math.abs(adjustments.hue) > 18 || Math.abs(adjustments.value) > 16 || Math.abs(adjustments.chroma) > 18;
+      if (hsl.l < 12) return { label: 'low-light sample', tone: 'warn' };
+      if (hsl.l > 82) return { label: 'bright sample', tone: 'warn' };
+      if (variance > 34) return { label: 'mixed color area', tone: 'warn' };
+      if (heavyCorrection) return { label: 'heavily adjusted', tone: 'warn' };
+      return { label: 'sample selected', tone: 'neutral' };
+    }
+
+    function renderQuality(quality) {
+      qualityEl.textContent = quality.label;
+      qualityEl.classList.toggle('warn', quality.tone === 'warn');
+    }
+
+    function renderEstimate() {
+      if (!baseRgb) {
+        munsellEl.textContent = '—';
+        updateClump([114, 90, 62]);
+        renderQuality({ label: 'tap to collect', tone: 'neutral' });
+        return;
+      }
+      const adjustments = getAdjustments();
+      const estimate = approximateMunsell(baseRgb, adjustments);
+      const adjustedQuality = qualityFromSample(baseRgb, lastQuality.variance || 0, adjustments);
+      munsellEl.textContent = estimate.label;
+      updateClump(estimate.adjustedRgb);
+      renderQuality(adjustedQuality.tone === 'warn' ? adjustedQuality : lastQuality);
+      setSliderLabels();
+    }
+
+    function resetForNewCollection() {
+      sliders.hue.value = 0;
+      sliders.value.value = 0;
+      sliders.chroma.value = 0;
+      setSliderLabels();
+    }
+
+    function getVideoDrawInfo() {
+      const rect = video.getBoundingClientRect();
+      const videoAspect = video.videoWidth / video.videoHeight;
+      const rectAspect = rect.width / rect.height;
+      let drawWidth, drawHeight, offsetX, offsetY;
+      if (rectAspect > videoAspect) {
+        drawWidth = rect.width;
+        drawHeight = rect.width / videoAspect;
+        offsetX = 0;
+        offsetY = (rect.height - drawHeight) / 2;
+      } else {
+        drawHeight = rect.height;
+        drawWidth = rect.height * videoAspect;
+        offsetX = (rect.width - drawWidth) / 2;
+        offsetY = 0;
+      }
+      return { rect, drawWidth, drawHeight, offsetX, offsetY };
+    }
+
+    function sampleFromTap(clientX, clientY) {
+      if (!video.videoWidth || !video.videoHeight) return;
+      const info = getVideoDrawInfo();
+      const xInRect = clientX - info.rect.left;
+      const yInRect = clientY - info.rect.top;
+      const videoX = (xInRect - info.offsetX) / info.drawWidth * video.videoWidth;
+      const videoY = (yInRect - info.offsetY) / info.drawHeight * video.videoHeight;
+      if (videoX < 0 || videoY < 0 || videoX > video.videoWidth || videoY > video.videoHeight) return;
+
+      const radius = Math.max(12, Math.round(Math.min(video.videoWidth, video.videoHeight) * 0.035));
+      const sx = clamp(Math.round(videoX - radius), 0, video.videoWidth - 1);
+      const sy = clamp(Math.round(videoY - radius), 0, video.videoHeight - 1);
+      const size = clamp(radius * 2, 8, Math.min(video.videoWidth - sx, video.videoHeight - sy));
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const pixels = ctx.getImageData(sx, sy, size, size).data;
+      const collected = [];
+
+      for (let i = 0; i < pixels.length; i += 4) {
+        const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2], a = pixels[i + 3];
+        if (a < 255) continue;
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const lightness = (max + min) / 2;
+        // Drop obvious glare and crushed black outliers before averaging.
+        if (lightness > 246 || lightness < 4) continue;
+        collected.push([r, g, b]);
+      }
+
+      if (!collected.length) return;
+
+      const avg = collected.reduce((sum, pixel) => {
+        sum[0] += pixel[0]; sum[1] += pixel[1]; sum[2] += pixel[2];
+        return sum;
+      }, [0, 0, 0]).map(total => Math.round(total / collected.length));
+
+      const variance = Math.sqrt(collected.reduce((sum, pixel) => {
+        return sum + Math.pow(pixel[0] - avg[0], 2) + Math.pow(pixel[1] - avg[1], 2) + Math.pow(pixel[2] - avg[2], 2);
+      }, 0) / collected.length);
+
+      resetForNewCollection();
+      baseRgb = avg;
+      lastQuality = qualityFromSample(avg, variance, getAdjustments());
+      lastQuality.variance = variance;
+      renderEstimate();
+
+      sampleRing.classList.add('show');
+      sampleRing.style.left = `${clientX - info.rect.left}px`;
+      sampleRing.style.top = `${clientY - info.rect.top}px`;
+      cameraLabel.textContent = 'Live camera · tap to collect next color';
+    }
+
+    async function startCamera() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        cameraError.classList.add('show');
+        cameraLabel.textContent = 'Camera unavailable';
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+        video.srcObject = stream;
+        cameraLabel.textContent = 'Live camera · tap to collect color';
+        cameraError.classList.remove('show');
+      } catch (err) {
+        cameraError.classList.add('show');
+        cameraLabel.textContent = 'Camera permission needed';
+        console.warn('Camera start failed:', err);
+      }
+    }
+
+    cameraPanel.addEventListener('pointerdown', (event) => {
+      if (cameraError.classList.contains('show')) return;
+      sampleFromTap(event.clientX, event.clientY);
+    });
+
+    Object.values(sliders).forEach(input => {
+      input.addEventListener('input', renderEstimate);
+    });
+
+    clearBtn.addEventListener('click', clearAdjustments);
+
+    function runSelfTests() {
+      const tests = [];
+      tests.push(clamp(12, 0, 10) === 10);
+      tests.push(clamp(-4, 0, 10) === 0);
+      tests.push(JSON.stringify(rgbToHsl(0, 0, 0)) === JSON.stringify({ h: 0, s: 0, l: 0 }));
+      tests.push(hslToRgb(35, 30, 40).every(n => Number.isInteger(n) && n >= 0 && n <= 255));
+      tests.push(/^\d+(\.5)?[A-Z]+ \d\/\d$/.test(approximateMunsell([86, 70, 51], { hue: 0, value: 0, chroma: 0 }).label));
+      if (!tests.every(Boolean)) console.warn('Self-test failure', tests);
+    }
+
+    runSelfTests();
+    setSliderLabels();
+    renderEstimate();
+    startCamera();
+  </script>
+</body>
+</html>
