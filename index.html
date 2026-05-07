@@ -7,6 +7,7 @@
   <title>Soil Color</title>
   <style>
     :root {
+      --app-height: 100dvh;
       --bg: #090909;
       --panel: #171514;
       --panel-2: #211e1c;
@@ -36,11 +37,12 @@
     button { touch-action: manipulation; }
 
     .app {
-      height: 100dvh;
-      height: 100vh;
+      height: var(--app-height, 100dvh);
+      min-height: var(--app-height, 100dvh);
       display: grid;
-      grid-template-rows: calc(3rem + env(safe-area-inset-top)) 1fr;
+      grid-template-rows: calc(3rem + env(safe-area-inset-top)) minmax(0, 1fr);
       background: var(--bg);
+      overflow: hidden;
     }
 
     .topbar {
@@ -88,8 +90,9 @@
 
     main {
       min-height: 0;
+      height: 100%;
       display: grid;
-      grid-template-rows: 46fr 32fr 22fr;
+      grid-template-rows: 38fr 34fr 28fr;
       overflow: hidden;
     }
 
@@ -247,7 +250,7 @@
     .slider-panel {
       min-height: 0;
       background: #090909;
-      padding: .52rem 1rem .6rem;
+      padding: .42rem 1rem calc(.55rem + env(safe-area-inset-bottom));
       overflow: hidden;
     }
     .slider-head {
@@ -275,11 +278,11 @@
       white-space: nowrap;
     }
     .sliders {
-      height: calc(100% - 1.45rem);
+      height: calc(100% - 1.35rem);
       min-height: 0;
       display: grid;
       grid-template-rows: repeat(3, minmax(0, 1fr));
-      gap: .42rem;
+      gap: .36rem;
     }
     .slider-row {
       min-height: 0;
@@ -290,7 +293,7 @@
       border-radius: 1.25rem;
       background: rgba(255,255,255,.08);
       border: 1px solid rgba(255,255,255,.08);
-      padding: .42rem .75rem;
+      padding: .34rem .72rem;
     }
     .slider-label { min-width: 0; }
     .slider-label strong { display: block; font-size: .78rem; line-height: 1.05; }
@@ -319,7 +322,7 @@
         <div class="badge">approximate only</div>
       </div>
       <div class="actions">
-        <div class="static-pill">Live camera only</div>
+        <button id="focusBtn" class="clear-btn" type="button">Refocus</button>
         <button id="clearBtn" class="clear-btn" type="button">Clear adj.</button>
       </div>
     </header>
@@ -422,6 +425,7 @@
     const sampleRing = document.getElementById('sampleRing');
     const munsellEl = document.getElementById('munsell');
     const qualityEl = document.getElementById('quality');
+    const focusBtn = document.getElementById('focusBtn');
     const clearBtn = document.getElementById('clearBtn');
     const sliders = {
       hue: document.getElementById('hue'),
@@ -440,6 +444,18 @@
       dark: document.getElementById('clumpDarkStop')
     };
 
+    function syncViewportHeight() {
+      const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      document.documentElement.style.setProperty('--app-height', `${Math.round(height)}px`);
+    }
+
+    syncViewportHeight();
+    window.addEventListener('resize', syncViewportHeight);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', syncViewportHeight);
+      window.visualViewport.addEventListener('scroll', syncViewportHeight);
+    }
+
     const HUE_FAMILIES = [
       { family: 'R', angle: 5 },
       { family: 'YR', angle: 35 },
@@ -453,6 +469,7 @@
       { family: 'RP', angle: 330 }
     ];
 
+    let currentStream = null;
     let baseRgb = null;
     let lastQuality = { label: 'tap to collect', tone: 'neutral' };
 
@@ -669,29 +686,67 @@
       cameraLabel.textContent = 'Live camera · tap to collect next color';
     }
 
-    async function startCamera() {
+    function stopCamera() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+      }
+    }
+
+    function cameraConstraints() {
+      return {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          advanced: [{ focusMode: 'continuous' }]
+        },
+        audio: false
+      };
+    }
+
+    async function tryContinuousFocus() {
+      const track = currentStream && currentStream.getVideoTracks()[0];
+      if (!track || typeof track.getCapabilities !== 'function' || typeof track.applyConstraints !== 'function') return false;
+      try {
+        const capabilities = track.getCapabilities();
+        if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes('continuous')) {
+          await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+          return true;
+        }
+      } catch (err) {
+        console.warn('Focus constraint failed:', err);
+      }
+      return false;
+    }
+
+    async function startCamera({ restart = false } = {}) {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         cameraError.classList.add('show');
         cameraLabel.textContent = 'Camera unavailable';
         return;
       }
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
-        });
+        if (restart) stopCamera();
+        const stream = await navigator.mediaDevices.getUserMedia(cameraConstraints());
+        currentStream = stream;
         video.srcObject = stream;
-        cameraLabel.textContent = 'Live camera · tap to collect color';
+        await video.play().catch(() => {});
+        await tryContinuousFocus();
+        cameraLabel.textContent = restart ? 'Camera refreshed · tap to collect color' : 'Live camera · tap to collect color';
         cameraError.classList.remove('show');
       } catch (err) {
         cameraError.classList.add('show');
         cameraLabel.textContent = 'Camera permission needed';
         console.warn('Camera start failed:', err);
       }
+    }
+
+    async function refocusCamera() {
+      cameraLabel.textContent = 'Refocusing camera…';
+      sampleRing.classList.remove('show');
+      await tryContinuousFocus();
+      await startCamera({ restart: true });
     }
 
     cameraPanel.addEventListener('pointerdown', (event) => {
@@ -703,6 +758,7 @@
       input.addEventListener('input', renderEstimate);
     });
 
+    focusBtn.addEventListener('click', refocusCamera);
     clearBtn.addEventListener('click', clearAdjustments);
 
     function runSelfTests() {
