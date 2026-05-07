@@ -292,6 +292,24 @@
     .slider-label strong { display: block; font-size: .78rem; line-height: 1.05; }
     .slider-label span { display: block; color: #837e78; font-size: .62rem; line-height: 1.2; font-weight: 850; margin-top: .1rem; }
     .slider-row input { width: 100%; accent-color: #fff; }
+    .hue-row {
+      grid-template-columns: 6.2rem 2.25rem 1fr 2.25rem 2.75rem;
+    }
+    .hue-step-btn {
+      width: 2.15rem;
+      height: 2.15rem;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 999px;
+      background: rgba(255,255,255,.12);
+      color: #fff;
+      font-size: 1.18rem;
+      font-weight: 950;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .hue-step-btn:active { transform: translateY(1px); background: rgba(255,255,255,.20); }
     .slider-value { text-align: right; color: #d4d0cc; font-size: .72rem; font-weight: 950; font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace; }
 
     .hidden-canvas { display: none; }
@@ -384,11 +402,13 @@
           <div class="estimate-pill">color estimate</div>
         </div>
         <div class="sliders">
-          <label class="slider-row">
-            <span class="slider-label"><strong>Hue</strong><span>10YR</span></span>
-            <input id="hue" type="range" min="-24" max="24" value="0" />
+          <div class="slider-row hue-row">
+            <span class="slider-label"><strong>Hue</strong><span id="hueStepLabel">10YR</span></span>
+            <button id="hueBack" class="hue-step-btn" type="button" aria-label="large hue step backward">‹</button>
+            <input id="hue" type="range" min="-24" max="24" value="0" aria-label="fine hue adjustment" />
+            <button id="hueNext" class="hue-step-btn" type="button" aria-label="large hue step forward">›</button>
             <span id="hueVal" class="slider-value">0</span>
-          </label>
+          </div>
           <label class="slider-row">
             <span class="slider-label"><strong>Value</strong><span>2</span></span>
             <input id="value" type="range" min="-22" max="22" value="0" />
@@ -417,6 +437,9 @@
     const qualityEl = document.getElementById('quality');
     const focusBtn = document.getElementById('focusBtn');
     const clearBtn = document.getElementById('clearBtn');
+    const hueBackBtn = document.getElementById('hueBack');
+    const hueNextBtn = document.getElementById('hueNext');
+    const hueStepLabel = document.getElementById('hueStepLabel');
     const sliders = {
       hue: document.getElementById('hue'),
       value: document.getElementById('value'),
@@ -433,6 +456,10 @@
       mid: document.getElementById('clumpMidStop'),
       dark: document.getElementById('clumpDarkStop')
     };
+
+    const HUE_PAGE_DEGREES = 10;
+    const MAX_HUE_PAGE_OFFSET = 8;
+    let huePageOffset = 0;
 
     function syncViewportHeight() {
       const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
@@ -544,7 +571,7 @@
 
     function getAdjustments() {
       return {
-        hue: Number(sliders.hue.value),
+        hue: Number(sliders.hue.value) + huePageOffset * HUE_PAGE_DEGREES,
         value: Number(sliders.value.value),
         chroma: Number(sliders.chroma.value)
       };
@@ -555,13 +582,20 @@
         const value = Number(sliders[key].value);
         sliderVals[key].textContent = value > 0 ? `+${value}` : String(value);
       });
+      hueStepLabel.textContent = huePageOffset === 0 ? '10YR' : `page ${huePageOffset > 0 ? '+' : ''}${huePageOffset}`;
     }
 
     function clearAdjustments() {
+      huePageOffset = 0;
       sliders.hue.value = 0;
       sliders.value.value = 0;
       sliders.chroma.value = 0;
       setSliderLabels();
+      renderEstimate();
+    }
+
+    function nudgeHuePage(delta) {
+      huePageOffset = clamp(huePageOffset + delta, -MAX_HUE_PAGE_OFFSET, MAX_HUE_PAGE_OFFSET);
       renderEstimate();
     }
 
@@ -597,6 +631,7 @@
     }
 
     function resetForNewCollection() {
+      huePageOffset = 0;
       sliders.hue.value = 0;
       sliders.value.value = 0;
       sliders.chroma.value = 0;
@@ -826,6 +861,8 @@
 
     focusBtn.addEventListener('click', refocusCamera);
     clearBtn.addEventListener('click', clearAdjustments);
+    hueBackBtn.addEventListener('click', () => nudgeHuePage(-1));
+    hueNextBtn.addEventListener('click', () => nudgeHuePage(1));
 
     function runSelfTests() {
       const tests = [];
