@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1c1917" />
+  <title>Soil Color Sampler</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span class="brand-title">Soil Color</span>
+        <span class="brand-subtitle">approximate only</span>
+      </div>
+
+      <div class="top-actions" role="group" aria-label="Capture mode and reset controls">
+        <div class="mode-toggle" role="group" aria-label="Capture mode">
+          <button id="liveModeBtn" class="mode-btn active" type="button">Live</button>
+          <button id="photoModeBtn" class="mode-btn" type="button">Photo</button>
+        </div>
+        <button id="clearAdjustmentsBtn" class="ghost-btn" type="button">Clear adj.</button>
+      </div>
+    </header>
+
+    <main class="viewport-shell">
+      <section class="camera-panel" aria-label="Camera or photo sampler">
+        <div class="camera-label" id="cameraLabel">Live camera · tap to collect color</div>
+
+        <video id="videoPreview" class="capture-media visible" playsinline muted autoplay></video>
+        <img id="photoPreview" class="capture-media" alt="Temporary photo preview" />
+        <canvas id="scratchCanvas" class="scratch" aria-hidden="true"></canvas>
+
+        <div class="camera-placeholder" id="cameraPlaceholder">
+          <strong>Camera not active</strong>
+          <span>Use HTTPS, allow camera permission, or choose Photo.</span>
+        </div>
+
+        <div class="sample-ring" id="sampleRing" aria-hidden="true">
+          <span>◎</span>
+        </div>
+
+        <div class="sample-help" id="sampleHelp">Tap the visible soil color you want to sample.</div>
+        <input id="photoInput" type="file" accept="image/*" capture="environment" hidden />
+      </section>
+
+      <section class="interpretation-panel" aria-label="Munsell color preview">
+        <div class="munsell-readout">
+          <div class="eyebrow">Munsell preview</div>
+          <div class="munsell-code" id="munsellCode">—</div>
+          <div class="munsell-subline" id="munsellSubline">approx camera color</div>
+          <div class="sample-quality neutral" id="sampleQuality">no sample yet</div>
+          <div class="scope-note">color only · new collection resets corrections</div>
+        </div>
+
+        <div class="clump-panel" aria-label="Rendered sampled soil clump">
+          <svg id="soilClump" viewBox="0 0 520 320" role="img" aria-label="Rendered soil clump preview">
+            <defs>
+              <filter id="grain" x="-20%" y="-20%" width="140%" height="140%">
+                <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="11" result="noise" />
+                <feColorMatrix in="noise" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 .28 0" result="grainLayer" />
+                <feBlend in="SourceGraphic" in2="grainLayer" mode="multiply" />
+              </filter>
+              <radialGradient id="clumpLight" cx="32%" cy="24%" r="70%">
+                <stop id="clumpStopLight" offset="0%" stop-color="rgb(128, 110, 84)" />
+                <stop id="clumpStopMid" offset="48%" stop-color="rgb(92, 74, 54)" />
+                <stop id="clumpStopDark" offset="100%" stop-color="rgb(54, 43, 32)" />
+              </radialGradient>
+              <mask id="clumpMask">
+                <path d="M76 166 C48 125 67 71 124 64 C160 29 231 23 284 54 C337 38 404 61 424 107 C482 121 502 171 475 211 C488 263 433 304 365 292 C320 322 239 315 204 287 C144 304 82 269 86 218 C61 205 56 181 76 166Z" fill="white" />
+              </mask>
+            </defs>
+
+            <ellipse cx="270" cy="270" rx="170" ry="30" fill="rgba(0,0,0,.16)" />
+            <g mask="url(#clumpMask)">
+              <rect x="35" y="25" width="455" height="285" fill="url(#clumpLight)" filter="url(#grain)" />
+              <g opacity=".25">
+                <circle cx="151" cy="124" r="12" fill="rgba(255,255,255,.35)" />
+                <circle cx="225" cy="92" r="8" fill="rgba(0,0,0,.35)" />
+                <circle cx="330" cy="116" r="14" fill="rgba(255,255,255,.20)" />
+                <circle cx="384" cy="189" r="11" fill="rgba(0,0,0,.32)" />
+                <circle cx="182" cy="217" r="9" fill="rgba(0,0,0,.28)" />
+                <circle cx="282" cy="236" r="13" fill="rgba(255,255,255,.17)" />
+              </g>
+              <g fill="none" stroke-linecap="round" opacity=".2">
+                <path d="M117 143 C172 115 238 119 289 151" stroke="rgba(255,255,255,.45)" stroke-width="8" />
+                <path d="M186 214 C255 181 339 192 406 231" stroke="rgba(0,0,0,.45)" stroke-width="9" />
+                <path d="M292 91 C350 83 403 107 438 146" stroke="rgba(255,255,255,.32)" stroke-width="7" />
+              </g>
+            </g>
+            <path d="M76 166 C48 125 67 71 124 64 C160 29 231 23 284 54 C337 38 404 61 424 107 C482 121 502 171 475 211 C488 263 433 304 365 292 C320 322 239 315 204 287 C144 304 82 269 86 218 C61 205 56 181 76 166Z" fill="none" stroke="rgba(40,30,20,.32)" stroke-width="5" />
+          </svg>
+        </div>
+      </section>
+
+      <section class="slider-panel" aria-label="Munsell correction sliders">
+        <div class="slider-header">
+          <span>Adjust color</span>
+          <span id="sliderHeaderStatus">collect sample first</span>
+        </div>
+
+        <div class="sliders">
+          <label class="slider-row">
+            <span class="slider-label"><strong>Hue</strong><small id="hueHelper">—</small></span>
+            <input id="hueSlider" type="range" min="-24" max="24" value="0" />
+            <span class="slider-value" id="hueValue">0</span>
+          </label>
+
+          <label class="slider-row">
+            <span class="slider-label"><strong>Value</strong><small id="valueHelper">—</small></span>
+            <input id="valueSlider" type="range" min="-22" max="22" value="0" />
+            <span class="slider-value" id="valueValue">0</span>
+          </label>
+
+          <label class="slider-row">
+            <span class="slider-label"><strong>Chroma</strong><small id="chromaHelper">—</small></span>
+            <input id="chromaSlider" type="range" min="-22" max="22" value="0" />
+            <span class="slider-value" id="chromaValue">0</span>
+          </label>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
