@@ -112,17 +112,6 @@
       background: #000;
     }
 
-    .camera-overlay {
-      pointer-events: none;
-      position: absolute;
-      inset: 0;
-      opacity: .22;
-      background-image:
-        radial-gradient(circle at 20% 30%, rgba(255,255,255,.22) 0 2px, transparent 2px),
-        radial-gradient(circle at 70% 65%, rgba(0,0,0,.40) 0 2px, transparent 2px);
-      background-size: 24px 24px, 31px 31px;
-      mix-blend-mode: screen;
-    }
 
     .camera-label {
       position: absolute;
@@ -150,7 +139,7 @@
       border: 3px solid white;
       border-radius: 50%;
       transform: translate(-50%, -50%);
-      box-shadow: 0 0 0 9999px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.25) inset;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.25) inset;
       display: none;
       pointer-events: none;
     }
@@ -330,7 +319,6 @@
     <main>
       <section id="cameraPanel" class="camera-panel">
         <video id="video" playsinline muted autoplay></video>
-        <div class="camera-overlay"></div>
         <div id="cameraLabel" class="camera-label">Starting camera · tap to collect color</div>
         <div id="sampleRing" class="sample-ring" aria-hidden="true"></div>
         <div id="cameraError" class="camera-error">
@@ -698,42 +686,30 @@
         video: {
           facingMode: { ideal: 'environment' },
           width: { ideal: 1280 },
-          height: { ideal: 720 },
-          advanced: [{ focusMode: 'continuous' }]
+          height: { ideal: 720 }
         },
         audio: false
       };
     }
 
-    async function tryContinuousFocus() {
-      const track = currentStream && currentStream.getVideoTracks()[0];
-      if (!track || typeof track.getCapabilities !== 'function' || typeof track.applyConstraints !== 'function') return false;
-      try {
-        const capabilities = track.getCapabilities();
-        if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes('continuous')) {
-          await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
-          return true;
-        }
-      } catch (err) {
-        console.warn('Focus constraint failed:', err);
-      }
-      return false;
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    async function startCamera({ restart = false } = {}) {
+    async function startCamera() {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         cameraError.classList.add('show');
         cameraLabel.textContent = 'Camera unavailable';
         return;
       }
       try {
-        if (restart) stopCamera();
+        // Initial camera hydration only. Do not restart a healthy focused stream automatically.
+        if (currentStream) return;
         const stream = await navigator.mediaDevices.getUserMedia(cameraConstraints());
         currentStream = stream;
         video.srcObject = stream;
         await video.play().catch(() => {});
-        await tryContinuousFocus();
-        cameraLabel.textContent = restart ? 'Camera refreshed · tap to collect color' : 'Live camera · tap to collect color';
+        cameraLabel.textContent = 'Live camera · tap to collect color';
         cameraError.classList.remove('show');
       } catch (err) {
         cameraError.classList.add('show');
@@ -743,10 +719,30 @@
     }
 
     async function refocusCamera() {
-      cameraLabel.textContent = 'Refocusing camera…';
+      if (manualRefreshInProgress) return;
+      manualRefreshInProgress = true;
+      focusBtn.disabled = true;
+      cameraLabel.textContent = 'Refreshing camera…';
       sampleRing.classList.remove('show');
-      await tryContinuousFocus();
-      await startCamera({ restart: true });
+      stopCamera();
+      video.pause();
+      video.srcObject = null;
+      await wait(180);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(cameraConstraints());
+        currentStream = stream;
+        video.srcObject = stream;
+        await video.play().catch(() => {});
+        cameraLabel.textContent = 'Camera refreshed · tap to collect color';
+        cameraError.classList.remove('show');
+      } catch (err) {
+        cameraError.classList.add('show');
+        cameraLabel.textContent = 'Camera permission needed';
+        console.warn('Manual camera refresh failed:', err);
+      } finally {
+        manualRefreshInProgress = false;
+        focusBtn.disabled = false;
+      }
     }
 
     cameraPanel.addEventListener('pointerdown', (event) => {
