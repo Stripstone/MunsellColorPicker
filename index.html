@@ -40,19 +40,9 @@
       height: var(--app-height, 100dvh);
       min-height: var(--app-height, 100dvh);
       display: grid;
-      grid-template-rows: calc(3rem + env(safe-area-inset-top)) minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr);
       background: var(--bg);
       overflow: hidden;
-    }
-
-    .topbar {
-      padding: calc(.5rem + env(safe-area-inset-top)) .75rem .5rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid var(--line);
-      background: #080808;
-      min-width: 0;
     }
 
     .brand {
@@ -92,8 +82,22 @@
       min-height: 0;
       height: 100%;
       display: grid;
-      grid-template-rows: 38fr 34fr 28fr;
+      grid-template-rows: 36fr auto 34fr 30fr;
       overflow: hidden;
+    }
+
+    .controlbar {
+      min-height: 3.1rem;
+      padding: .48rem .75rem;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: .55rem;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: #080808;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
     }
 
     .camera-panel {
@@ -304,18 +308,6 @@
 </head>
 <body>
   <div class="app">
-    <header class="topbar">
-      <div class="brand">
-        <div class="dot"></div>
-        <div class="title">Soil Color</div>
-        <div class="badge">approximate only</div>
-      </div>
-      <div class="actions">
-        <button id="focusBtn" class="clear-btn" type="button">Refocus</button>
-        <button id="clearBtn" class="clear-btn" type="button">Clear adj.</button>
-      </div>
-    </header>
-
     <main>
       <section id="cameraPanel" class="camera-panel">
         <video id="video" playsinline muted autoplay></video>
@@ -327,6 +319,16 @@
             <span>Allow camera access and open this page over HTTPS. GitHub Pages should work once permission is granted.</span>
           </div>
         </div>
+      </section>
+
+      <section class="controlbar" aria-label="Camera and color controls">
+        <button id="focusBtn" class="clear-btn" type="button">Refocus</button>
+        <div class="brand">
+          <div class="dot"></div>
+          <div class="title">Soil Color</div>
+          <div class="badge">approximate only</div>
+        </div>
+        <button id="clearBtn" class="clear-btn" type="button">Reset sliders</button>
       </section>
 
       <section class="readout-panel">
@@ -458,6 +460,7 @@
     ];
 
     let currentStream = null;
+    let manualRefreshInProgress = false;
     let baseRgb = null;
     let lastQuality = { label: 'tap to collect', tone: 'neutral' };
 
@@ -569,7 +572,7 @@
       if (hsl.l > 82) return { label: 'bright sample', tone: 'warn' };
       if (variance > 34) return { label: 'mixed color area', tone: 'warn' };
       if (heavyCorrection) return { label: 'heavily adjusted', tone: 'warn' };
-      return { label: 'sample selected', tone: 'neutral' };
+      return { label: '5-point average', tone: 'neutral' };
     }
 
     function renderQuality(quality) {
@@ -619,44 +622,111 @@
       return { rect, drawWidth, drawHeight, offsetX, offsetY };
     }
 
-    function sampleFromTap(clientX, clientY) {
-      if (!video.videoWidth || !video.videoHeight) return;
-      const info = getVideoDrawInfo();
+    function mapClientToVideo(clientX, clientY, info) {
       const xInRect = clientX - info.rect.left;
       const yInRect = clientY - info.rect.top;
       const videoX = (xInRect - info.offsetX) / info.drawWidth * video.videoWidth;
       const videoY = (yInRect - info.offsetY) / info.drawHeight * video.videoHeight;
-      if (videoX < 0 || videoY < 0 || videoX > video.videoWidth || videoY > video.videoHeight) return;
+      if (videoX < 0 || videoY < 0 || videoX > video.videoWidth || videoY > video.videoHeight) return null;
+      return { x: videoX, y: videoY };
+    }
 
-      const radius = Math.max(12, Math.round(Math.min(video.videoWidth, video.videoHeight) * 0.035));
-      const sx = clamp(Math.round(videoX - radius), 0, video.videoWidth - 1);
-      const sy = clamp(Math.round(videoY - radius), 0, video.videoHeight - 1);
-      const size = clamp(radius * 2, 8, Math.min(video.videoWidth - sx, video.videoHeight - sy));
+    function averagePixels(pixels) {
+      if (!pixels.length) return null;
+      return pixels.reduce((sum, pixel) => {
+        sum[0] += pixel[0]; sum[1] += pixel[1]; sum[2] += pixel[2];
+        return sum;
+      }, [0, 0, 0]).map(total => Math.round(total / pixels.length));
+    }
+
+    function samplePatch(ctx, centerX, centerY, radius) {
+      const cx = Math.round(centerX);
+      const cy = Math.round(centerY);
+      const r = Math.max(2, Math.round(radius));
+      const sx = clamp(cx - r, 0, video.videoWidth - 1);
+      const sy = clamp(cy - r, 0, video.videoHeight - 1);
+      const ex = clamp(cx + r, 0, video.videoWidth - 1);
+      const ey = clamp(cy + r, 0, video.videoHeight - 1);
+      const width = Math.max(1, ex - sx + 1);
+      const height = Math.max(1, ey - sy + 1);
+      const data = ctx.getImageData(sx, sy, width, height).data;
+      const out = [];
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const dx = sx + x - centerX;
+          const dy = sy + y - centerY;
+          if (dx * dx + dy * dy > r * r) continue;
+          const i = (y * width + x) * 4;
+          const red = data[i], green = data[i + 1], blue = data[i + 2], alpha = data[i + 3];
+          if (alpha < 255) continue;
+          const max = Math.max(red, green, blue);
+          const min = Math.min(red, green, blue);
+          const lightness = (max + min) / 2;
+          // Drop obvious glare and crushed black outliers before averaging.
+          if (lightness > 246 || lightness < 4) continue;
+          out.push([red, green, blue]);
+        }
+      }
+      return out;
+    }
+
+    function robustAverage(collected) {
+      const initial = averagePixels(collected);
+      if (!initial) return null;
+      if (collected.length < 20) return initial;
+
+      const scored = collected.map(pixel => ({
+        pixel,
+        distance:
+          Math.pow(pixel[0] - initial[0], 2) +
+          Math.pow(pixel[1] - initial[1], 2) +
+          Math.pow(pixel[2] - initial[2], 2)
+      }));
+      scored.sort((a, b) => a.distance - b.distance);
+      const keepCount = Math.max(12, Math.floor(scored.length * 0.82));
+      return averagePixels(scored.slice(0, keepCount).map(item => item.pixel));
+    }
+
+    function sampleFromTap(clientX, clientY) {
+      if (!video.videoWidth || !video.videoHeight) return;
+      const info = getVideoDrawInfo();
+      const center = mapClientToVideo(clientX, clientY, info);
+      if (!center) return;
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const pixels = ctx.getImageData(sx, sy, size, size).data;
-      const collected = [];
 
-      for (let i = 0; i < pixels.length; i += 4) {
-        const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2], a = pixels[i + 3];
-        if (a < 255) continue;
-        const max = Math.max(r, g, b);
-        const min = Math.min(r, g, b);
-        const lightness = (max + min) / 2;
-        // Drop obvious glare and crushed black outliers before averaging.
-        if (lightness > 246 || lightness < 4) continue;
-        collected.push([r, g, b]);
+      // User-facing contract: the visible touch circle represents the object color target.
+      // Sampling uses a 5-point average inside 75% of that circle: center, left, right, top, bottom.
+      const ringRadiusCss = 44;
+      const pointOffsetCss = ringRadiusCss * 0.75;
+      const patchRadiusCss = ringRadiusCss * 0.15;
+      const scaleX = video.videoWidth / info.drawWidth;
+      const scaleY = video.videoHeight / info.drawHeight;
+      const patchRadiusVideo = Math.max(3, Math.round(((scaleX + scaleY) / 2) * patchRadiusCss));
+
+      const offsets = [
+        [0, 0],
+        [-pointOffsetCss, 0],
+        [pointOffsetCss, 0],
+        [0, -pointOffsetCss],
+        [0, pointOffsetCss]
+      ];
+
+      const collected = [];
+      for (const [dx, dy] of offsets) {
+        const mapped = mapClientToVideo(clientX + dx, clientY + dy, info);
+        if (!mapped) continue;
+        collected.push(...samplePatch(ctx, mapped.x, mapped.y, patchRadiusVideo));
       }
 
       if (!collected.length) return;
 
-      const avg = collected.reduce((sum, pixel) => {
-        sum[0] += pixel[0]; sum[1] += pixel[1]; sum[2] += pixel[2];
-        return sum;
-      }, [0, 0, 0]).map(total => Math.round(total / collected.length));
+      const avg = robustAverage(collected);
+      if (!avg) return;
 
       const variance = Math.sqrt(collected.reduce((sum, pixel) => {
         return sum + Math.pow(pixel[0] - avg[0], 2) + Math.pow(pixel[1] - avg[1], 2) + Math.pow(pixel[2] - avg[2], 2);
