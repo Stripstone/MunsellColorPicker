@@ -138,10 +138,19 @@
       z-index: 20;
     }
 
+    .render-viewport {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 16px;
+      bottom: 0;
+      overflow: hidden;
+    }
+
     .rail {
       position: absolute;
-      top: 20px;
-      bottom: 8px;
+      top: 0;
+      bottom: 0;
       right: 4px;
       width: 32px;
       z-index: 30;
@@ -179,17 +188,23 @@
 
     .soil-stack {
       position: absolute;
-      inset: 0;
+      inset: 0 36px 0 0;
       display: flex;
       flex-direction: column;
-      padding-top: 12px;
-      padding-right: 36px;
+    }
+
+    .labels-overlay {
+      pointer-events: none;
+      position: absolute;
+      inset: 0 36px 0 0;
+      z-index: 40;
     }
 
     .soil-layer {
       position: relative;
       min-height: 0;
       overflow: hidden;
+      z-index: 1;
     }
 
     .root {
@@ -203,7 +218,8 @@
     .layer-label {
       position: absolute;
       left: 12px;
-      top: 12px;
+      top: 50%;
+      transform: translateY(-50%);
       z-index: 10;
       color: rgba(255,255,255,.86);
       text-shadow: 0 1px 3px rgba(0,0,0,.4);
@@ -215,7 +231,8 @@
     .munsell-tag {
       position: absolute;
       right: 8px;
-      bottom: 8px;
+      top: 50%;
+      transform: translateY(-50%);
       z-index: 10;
       border-radius: 9px;
       background: rgba(255,255,255,.72);
@@ -230,9 +247,8 @@
       pointer-events: none;
       position: absolute;
       left: 0;
-      right: 0;
-      bottom: 0;
-      height: 32px;
+      right: 36px;
+      z-index: 8;
       clip-path: polygon(0 45%,12% 34%,25% 50%,39% 31%,54% 46%,70% 33%,86% 48%,100% 36%,100% 100%,0 100%);
     }
 
@@ -406,13 +422,75 @@
       border-radius: 12px;
       background: var(--stone-100);
     }
+
+    .bedrock-shale {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+      background: #56554f;
+      color: white;
+    }
+
+    .bedrock-shale .bedTop {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 28px;
+      background: linear-gradient(180deg, rgba(177, 131, 85, .45), rgba(0,0,0,0));
+      z-index: 4;
+      clip-path: polygon(0 0,100% 0,100% 42%,91% 53%,77% 40%,65% 62%,49% 44%,33% 64%,19% 45%,0 58%);
+    }
+
+    .bedrock-shale .band {
+      position: absolute;
+      left: -3%;
+      right: -3%;
+      height: 18%;
+      background: #67645a;
+      clip-path: polygon(0 20%,14% 12%,31% 31%,48% 10%,68% 24%,86% 8%,100% 28%,100% 100%,0 100%);
+    }
+
+    .bedrock-shale .b1 { top: 4%; background: #777064; }
+    .bedrock-shale .b2 { top: 23%; background: #605d55; }
+    .bedrock-shale .b3 { top: 43%; background: #4e4f49; }
+    .bedrock-shale .b4 { top: 64%; background: #3d3f3b; }
+
+    .bedrock-shale .slash {
+      position: absolute;
+      height: 42%;
+      width: 2px;
+      background: #242421;
+      opacity: .45;
+      transform: rotate(22deg);
+    }
+
+    .bedrock-shale .s1 { left: 18%; top: 23%; }
+    .bedrock-shale .s2 { left: 48%; top: 38%; transform: rotate(-18deg); }
+    .bedrock-shale .s3 { right: 18%; top: 26%; }
+
+    .bedrock-label {
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      z-index: 5;
+      font-size: 11px;
+      font-weight: 900;
+      color: rgba(255,255,255,.78);
+      letter-spacing: .02em;
+    }
+
+
   </style>
 </head>
 <body>
   <main class="app">
     <div class="wrap">
       <header class="topbar">
-        <div class="title" id="title">STP</div>
+        <div class="title">
+          T-<input id="contextInput" style="width:44px;border:0;border-bottom:2px solid var(--stone-300);background:transparent;font:inherit;font-weight:900;font-size:17px;outline:none;padding:0 2px;" maxlength="12" spellcheck="false" autocomplete="off" />
+          &nbsp;&nbsp;STP&nbsp;<input id="stpInput" style="width:36px;border:0;border-bottom:2px solid var(--stone-300);background:transparent;font:inherit;font-weight:900;font-size:17px;outline:none;padding:0 2px;" spellcheck="false" autocomplete="off" />
+        </div>
         <div class="controls">
           <button class="topbtn" id="removePage">−</button>
           <button class="topbtn" id="addPage">+</button>
@@ -433,8 +511,11 @@
         <div class="pit">
           <div class="grass1"></div>
           <div class="grass2"></div>
-          <div class="rail" id="rail"></div>
-          <div class="soil-stack" id="soilStack"></div>
+          <div class="render-viewport" id="renderViewport">
+            <div class="soil-stack" id="soilStack"></div>
+            <div class="labels-overlay" id="labelsOverlay"></div>
+            <div class="rail" id="rail"></div>
+          </div>
         </div>
       </section>
 
@@ -453,6 +534,13 @@
     const CHROMAS = [1, 2, 3, 4, 6, 8];
     const LAYERS = ["A", "B", "C"];
     const DEFAULT_RENDER_DEPTH_CM = 50;
+    const TRANSITION_RENDER = {
+      yOffsetPx: 0,
+      gaugePx: 16
+    };
+    const LABEL_RENDER = {
+      minTopPx: 24
+    };
 
     const HUE_RGB = {
       "10R": [122, 56, 48], "7.5R": [132, 64, 48], "5R": [136, 58, 52], "2.5R": [126, 50, 52],
@@ -464,29 +552,21 @@
 
     let pages = [
       {
-        id: 10,
+        id: 1,
         layers: {
           A: { hueNumber: 10, hueFamily: "YR", value: 4, chroma: 2, active: true },
           B: { hueNumber: 7.5, hueFamily: "YR", value: 5, chroma: 4, active: true },
-          C: { hueNumber: 10, hueFamily: "YR", value: 6, chroma: 4, active: true }
+          C: { hueNumber: 10, hueFamily: "YR", value: 6, chroma: 4, active: false }
         },
         extents: { A: 9, B: 26, C: 35 }
-      },
-      {
-        id: 11,
-        layers: {
-          A: { hueNumber: 10, hueFamily: "YR", value: 3, chroma: 2, active: true },
-          B: { hueNumber: 10, hueFamily: "YR", value: 5, chroma: 3, active: true },
-          C: { hueNumber: 2.5, hueFamily: "Y", value: 6, chroma: 2, active: false }
-        },
-        extents: { A: 8, B: 32, C: 50 }
       }
     ];
 
-    let pageIndex = pages.length - 1;
+    let pageIndex = 0;
     let renderDepth = DEFAULT_RENDER_DEPTH_CM;
     let pendingAction = null;
     let railDrag = null;
+    let contextLabel = "01";
 
     const $ = (id) => document.getElementById(id);
     const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
@@ -597,11 +677,16 @@
     function updateColor(layer, patch) {
       setPage((p) => {
         const clean = { ...patch };
+        const wasInactiveC = layer === "C" && !p.layers.C?.active;
+        const isActivatingC = wasInactiveC && clean.active === true;
         if (clean.hueFamilyDraft !== undefined) {
           clean.hueFamily = clean.hueFamilyDraft;
           delete clean.hueFamilyDraft;
         }
         p.layers[layer] = { ...p.layers[layer], ...clean };
+        if (isActivatingC) {
+          p.extents.C = (Number(p.extents.B) || 0) + 5;
+        }
         return p;
       });
     }
@@ -613,10 +698,29 @@
       });
     }
 
-    function insertPageAfterCurrent() {
-      const source = clone(pages[pageIndex] || pages[pages.length - 1]);
+    function insertPageAfterCurrent(renumberTail = false) {
+      const current = page();
+      const newId   = current.id + 1;
       const insertAt = pageIndex + 1;
-      pages = renumberPages([...pages.slice(0, insertAt), source, ...pages.slice(insertAt)]);
+      const nextPage = pages[insertAt];
+
+      if (!renumberTail && nextPage && nextPage.id === newId) {
+        // Collision — prompt first
+        setPending("add", `Add STP ${newId} here and renumber later pages?`);
+        return;
+      }
+
+      const newPage = { ...clone(current), id: newId };
+      let newPages  = [...pages.slice(0, insertAt), newPage, ...pages.slice(insertAt)];
+
+      if (renumberTail) {
+        // Increment ids of everything after the inserted page to restore sequence
+        for (let i = insertAt + 1; i < newPages.length; i++) {
+          newPages[i] = { ...newPages[i], id: newPages[i].id + 1 };
+        }
+      }
+
+      pages = newPages;
       pageIndex = insertAt;
       pendingAction = null;
       render();
@@ -624,7 +728,8 @@
 
     function removeCurrentPage() {
       if (pages.length <= 1) return;
-      pages = renumberPages(pages.filter((_, i) => i !== pageIndex));
+      // Remove only; do not renumber — STP ids are user-owned
+      pages = pages.filter((_, i) => i !== pageIndex);
       pageIndex = clamp(pageIndex, 0, pages.length - 1);
       pendingAction = null;
       render();
@@ -752,18 +857,81 @@
       }
     }
 
+    function clearTransitionOverlays() {
+      $("renderViewport").querySelectorAll(".horizon-blend").forEach((node) => node.remove());
+    }
+
+    function renderTransitionOverlays(segments) {
+      const viewport = $("renderViewport");
+      let boundaryCm = 0;
+      segments.forEach((segment, index) => {
+        boundaryCm += Math.max(segment.thickness, 0);
+        const nextSegment = segments[index + 1];
+        if (!nextSegment) return;
+
+        const soil = munsellToRgb(segment.color);
+        const nextSoil = munsellToRgb(nextSegment.color);
+        const pct = cmToPct(boundaryCm, renderDepth);
+        const halfGauge = TRANSITION_RENDER.gaugePx / 2;
+
+        const blend = document.createElement("div");
+        blend.className = "horizon-blend";
+        blend.style.top = `calc(${pct}% - ${halfGauge}px + ${TRANSITION_RENDER.yOffsetPx}px)`;
+        blend.style.height = `${TRANSITION_RENDER.gaugePx}px`;
+        blend.style.background = `linear-gradient(180deg, ${soil} 0%, ${nextSoil} 100%)`;
+        viewport.appendChild(blend);
+      });
+    }
+
+    function renderLabelsOverlay(segments) {
+      const overlay = $("labelsOverlay");
+      overlay.innerHTML = "";
+      let topCm = 0;
+      const overlayHeight = Math.max(overlay.clientHeight || $("renderViewport").clientHeight || 0, 1);
+
+      segments.forEach((segment, index) => {
+        const layer = segment.layer;
+        const color = segment.color;
+        const centerCm = topCm + Math.max(segment.thickness, 0) / 2;
+        const pct = cmToPct(centerCm, renderDepth);
+        const nextSegment = segments[index + 1];
+        const labelLift = nextSegment ? Math.max(0, TRANSITION_RENDER.gaugePx / 2 - TRANSITION_RENDER.yOffsetPx) : 0;
+        const labelTopPx = Math.max(LABEL_RENDER.minTopPx, (pct / 100) * overlayHeight - labelLift);
+
+        const label = document.createElement("div");
+        label.className = "layer-label";
+        label.textContent = layer;
+        label.style.top = `${labelTopPx}px`;
+
+        const tag = document.createElement("div");
+        tag.className = "munsell-tag";
+        tag.textContent = colorLabel(color);
+        tag.style.top = `${labelTopPx}px`;
+
+        overlay.appendChild(label);
+        overlay.appendChild(tag);
+        topCm += Math.max(segment.thickness, 0);
+      });
+    }
+
     function renderProfile(current) {
       renderRail(current);
+      clearTransitionOverlays();
       const stack = $("soilStack");
+      const labels = $("labelsOverlay");
       const segments = visibleLayerSegments(current.layers, current.extents, renderDepth);
       stack.innerHTML = "";
+      labels.innerHTML = "";
 
       if (!segments.length) {
         stack.innerHTML = `<div style="display:flex;flex:1;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:var(--stone-600)">no layers in render depth</div>`;
         return;
       }
 
+      let renderedThickness = 0;
+
       segments.forEach((segment, index) => {
+        renderedThickness += Math.max(segment.thickness, 0);
         const layer = segment.layer;
         const color = segment.color;
         const soil = munsellToRgb(color);
@@ -783,19 +951,30 @@
           `;
         }
 
-        if (nextSegment) {
-          const blend = document.createElement("div");
-          blend.className = "horizon-blend";
-          blend.style.background = `linear-gradient(180deg, rgba(255,255,255,0) 0%, ${nextSoil} 100%)`;
-          div.appendChild(blend);
-        }
-
-        div.innerHTML += `
-          <div class="layer-label">${layer}</div>
-          <div class="munsell-tag">${colorLabel(color)}</div>
-        `;
         stack.appendChild(div);
       });
+
+      renderTransitionOverlays(segments);
+      renderLabelsOverlay(segments);
+
+      const remainingRenderDepth = Math.max(renderDepth - renderedThickness, 0);
+      if (remainingRenderDepth > 0) {
+        const filler = document.createElement("div");
+        filler.className = "soil-layer bedrock-shale";
+        filler.style.flex = `${remainingRenderDepth} 1 0`;
+        filler.innerHTML = `
+          <div class="bedTop"></div>
+          <div class="band b1"></div>
+          <div class="band b2"></div>
+          <div class="band b3"></div>
+          <div class="band b4"></div>
+          <div class="slash s1"></div>
+          <div class="slash s2"></div>
+          <div class="slash s3"></div>
+          <div class="bedrock-label">BEDROCK</div>
+        `;
+        stack.appendChild(filler);
+      }
     }
 
     function renderStepper(value, upData, downData, inner = null) {
@@ -833,7 +1012,14 @@
                   <span class="range-prefix">${prefix}</span>
                   ${cmInputHTML(current.extents[layer], invalid, true)}
                 </div>
-              ` : `<div class="empty-cell"></div>`}
+              ` : layer === "C" ? `
+                <div class="cm-wrap" aria-label="inactive C depth range">
+                  <span class="range-prefix">x-</span>
+                  <span class="cm-input compact" data-inactive-c-placeholder="1" style="display:inline-flex;align-items:center;justify-content:center;color:var(--stone-500);"></span>
+                </div>
+              ` : `
+                <div class="empty-cell"></div>
+              `}
               ${layer === "C" ? `<button class="clear-btn" data-action="clear-c">−</button>` : `<div></div>`}
             </div>
           </div>
@@ -901,9 +1087,33 @@
       });
     }
 
+    function bindTopBarInputs(current) {
+      const ctxInput = $("contextInput");
+      const stpInput = $("stpInput");
+      if (document.activeElement !== ctxInput) ctxInput.value = contextLabel;
+      if (document.activeElement !== stpInput) stpInput.value = String(current.id);
+      if (!ctxInput._bound) {
+        ctxInput._bound = true;
+        ctxInput.addEventListener("blur", () => {
+          contextLabel = ctxInput.value.trim() || contextLabel;
+          ctxInput.value = contextLabel;
+        });
+        ctxInput.addEventListener("keydown", (e) => { if (e.key === "Enter") ctxInput.blur(); });
+      }
+      if (!stpInput._bound) {
+        stpInput._bound = true;
+        stpInput.addEventListener("blur", () => {
+          const n = parseInt(stpInput.value, 10);
+          if (n > 0) pages = pages.map((p, i) => i === pageIndex ? { ...p, id: n } : p);
+          stpInput.value = String(page().id);
+        });
+        stpInput.addEventListener("keydown", (e) => { if (e.key === "Enter") stpInput.blur(); });
+      }
+    }
+
     function render() {
       const current = page();
-      $("title").textContent = `STP ${current.id}`;
+      bindTopBarInputs(current);
       $("removePage").disabled = pages.length <= 1;
       $("prevPage").disabled = pageIndex <= 0;
       $("nextPage").disabled = pageIndex >= pages.length - 1;
@@ -915,16 +1125,12 @@
     }
 
     $("addPage").addEventListener("click", () => {
-      if (pageIndex < pages.length - 1) {
-        setPending("add", "Add an STP here? Downstream pages will renumber.");
-        return;
-      }
-      insertPageAfterCurrent();
+      insertPageAfterCurrent(false);
     });
 
     $("removePage").addEventListener("click", () => {
       if (pages.length <= 1) return;
-      setPending("remove", "Remove this STP page? Downstream pages will renumber.");
+      setPending("remove", `Remove STP ${page().id}?`);
     });
 
     $("prevPage").addEventListener("click", () => {
@@ -941,7 +1147,7 @@
 
     $("confirmYes").addEventListener("click", () => {
       if (!pendingAction) return;
-      if (pendingAction.type === "add") insertPageAfterCurrent();
+      if (pendingAction.type === "add") insertPageAfterCurrent(true);
       if (pendingAction.type === "remove") removeCurrentPage();
     });
 
@@ -949,23 +1155,6 @@
       pendingAction = null;
       render();
     });
-
-    function insertPageAfterCurrent() {
-      const source = clone(page());
-      const insertAt = pageIndex + 1;
-      pages = renumberPages([...pages.slice(0, insertAt), source, ...pages.slice(insertAt)]);
-      pageIndex = insertAt;
-      pendingAction = null;
-      render();
-    }
-
-    function removeCurrentPage() {
-      if (pages.length <= 1) return;
-      pages = renumberPages(pages.filter((_, i) => i !== pageIndex));
-      pageIndex = clamp(pageIndex, 0, pages.length - 1);
-      pendingAction = null;
-      render();
-    }
 
     render();
   </script>
