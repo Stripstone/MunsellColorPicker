@@ -279,8 +279,10 @@
     .row {
       border: 1px solid var(--stone-200);
       border-radius: 16px;
-      padding: 6px;
+      padding: 5px;
       background: white;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .row.off {
@@ -291,13 +293,15 @@
 
     .row-grid {
       display: grid;
-      grid-template-columns: 2rem 2.8rem 3.2rem 3rem .5rem 3rem 5rem 1.8rem;
+      grid-template-columns: 1.75rem 2.2rem 2.55rem 2.15rem .3rem 2.15rem minmax(2.5rem, 1fr) 3.4rem 1.35rem;
       align-items: center;
-      gap: 4px;
+      gap: 3px;
+      min-width: 0;
     }
 
     .layer-toggle {
       height: 40px;
+      min-width: 0;
       border-radius: 12px;
       background: var(--stone-900);
       color: white;
@@ -312,6 +316,7 @@
 
     .stepper {
       min-width: 0;
+      max-width: 100%;
       display: flex;
       flex-direction: column;
       align-items: stretch;
@@ -320,6 +325,8 @@
 
     .stepper button {
       height: 20px;
+      min-width: 0;
+      padding: 0;
       background: var(--stone-100);
       color: var(--stone-900);
       font-size: 12px;
@@ -329,6 +336,26 @@
 
     .stepper button:first-child { border-radius: 8px 8px 0 0; }
     .stepper button:last-child { border-radius: 0 0 8px 8px; }
+
+
+    .type-stepper .step-value {
+      font-size: 10px;
+      letter-spacing: -0.04em;
+      white-space: nowrap;
+      padding: 0 2px;
+    }
+
+    .type-stepper .step-value span {
+      display: block;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .type-stepper.unset .step-value {
+      color: var(--stone-500);
+      background: var(--stone-100);
+    }
 
     .step-value {
       height: 28px;
@@ -360,35 +387,40 @@
     }
 
     .slash {
+      min-width: 0;
       color: #a8a29e;
       text-align: center;
-      font-size: 18px;
+      font-size: 14px;
       font-weight: 900;
     }
 
     .cm-wrap {
+      min-width: 0;
       display: flex;
       align-items: center;
       justify-content: flex-end;
-      gap: 2px;
+      gap: 1px;
     }
 
     .range-prefix {
-      min-width: 20px;
+      min-width: 15px;
+      max-width: 17px;
+      overflow: hidden;
       text-align: right;
       color: var(--stone-500);
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 900;
     }
 
     .cm-input {
       height: 40px;
+      min-width: 0;
       border-radius: 12px;
       border: 1px solid var(--stone-200);
       background: var(--stone-100);
-      padding: 0 4px;
+      padding: 0 2px;
       text-align: center;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 900;
       outline: none;
       width: 100%;
@@ -396,9 +428,9 @@
 
     .cm-input.compact {
       height: 28px;
-      width: 56px;
+      width: 36px;
       border-radius: 9px;
-      font-size: 10px;
+      font-size: 9px;
     }
 
     .cm-input.invalid {
@@ -409,6 +441,8 @@
 
     .clear-btn {
       height: 40px;
+      min-width: 0;
+      padding: 0;
       border-radius: 12px;
       background: var(--stone-100);
       color: var(--stone-500);
@@ -421,6 +455,53 @@
       border: 1px solid rgba(0,0,0,.10);
       border-radius: 12px;
       background: var(--stone-100);
+    }
+
+
+
+    .soil-texture-overlay {
+      pointer-events: none;
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      opacity: .72;
+      mix-blend-mode: soft-light;
+    }
+
+    .soil-texture-overlay.sand {
+      opacity: .58;
+      background-image:
+        radial-gradient(circle at 8px 10px, rgba(255,255,255,.42) 0 1px, transparent 1.4px),
+        radial-gradient(circle at 23px 18px, rgba(255,255,255,.32) 0 1.2px, transparent 1.6px),
+        radial-gradient(circle at 37px 6px, rgba(255,255,255,.28) 0 .9px, transparent 1.3px),
+        radial-gradient(circle at 14px 30px, rgba(70,50,30,.16) 0 .9px, transparent 1.3px);
+      background-size: 44px 38px, 52px 46px, 39px 33px, 47px 41px;
+    }
+
+    .soil-texture-overlay.silt {
+      opacity: .62;
+      mix-blend-mode: multiply;
+      background-image:
+        radial-gradient(circle at 11px 12px, transparent 0 3px, rgba(55,38,24,.34) 3.2px 4.2px, transparent 4.5px),
+        radial-gradient(circle at 28px 20px, transparent 0 2px, rgba(55,38,24,.28) 2.2px 3px, transparent 3.3px),
+        radial-gradient(circle at 42px 10px, transparent 0 1.6px, rgba(55,38,24,.25) 1.8px 2.5px, transparent 2.8px);
+      background-size: 56px 46px, 48px 39px, 64px 52px;
+    }
+
+    .soil-texture-overlay.loam {
+      opacity: .74;
+      mix-blend-mode: soft-light;
+      background-repeat: repeat;
+      background-size: 94px 68px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='94' height='68' viewBox='0 0 94 68'%3E%3Cg fill='none' stroke='%23f3dfb4' stroke-width='1.6' stroke-linecap='round' opacity='.62'%3E%3Cpath d='M8 18c9-8 13 6 22-2 6-5 8-8 14-5'/%3E%3Cpath d='M41 48c7-10 11 2 17-6 5-6 7-4 13-9'/%3E%3Cpath d='M70 19c4 5 11 2 15 9'/%3E%3Cpath d='M23 38c5 2 8 6 15 4'/%3E%3C/g%3E%3Cg fill='none' stroke='%23342217' stroke-width='1.1' stroke-linecap='round' opacity='.34'%3E%3Cpath d='M10 20c8-6 12 4 20-2 7-5 9-8 14-5'/%3E%3Cpath d='M42 50c7-8 10 1 17-6 5-5 7-4 12-8'/%3E%3C/g%3E%3C/svg%3E");
+    }
+
+    .soil-texture-overlay.clay {
+      opacity: .54;
+      mix-blend-mode: multiply;
+      background-repeat: repeat;
+      background-size: 118px 82px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='118' height='82' viewBox='0 0 118 82'%3E%3Cg fill='none' stroke='%232b2118' stroke-width='1.15' stroke-linecap='round' stroke-linejoin='round' opacity='.46'%3E%3Cpath d='M13 10c7 5 3 11 10 15 5 3 11 2 16 7'/%3E%3Cpath d='M24 25c-4 4-6 7-5 12'/%3E%3Cpath d='M42 18c8-3 14 1 18 7 3 5 8 6 15 5'/%3E%3Cpath d='M61 26c-5 5-8 8-8 14'/%3E%3Cpath d='M83 12c-5 6-2 13-8 18'/%3E%3Cpath d='M91 36c8 2 13 8 17 15'/%3E%3Cpath d='M75 51c-8-2-14 1-20 7'/%3E%3Cpath d='M48 58c-5-5-11-7-18-5'/%3E%3Cpath d='M18 62c6 4 10 4 15 10'/%3E%3Cpath d='M98 65c-8-3-15-1-21 5'/%3E%3C/g%3E%3Cg fill='none' stroke='%232b2118' stroke-width='.85' stroke-linecap='round' stroke-linejoin='round' opacity='.30'%3E%3Cpath d='M7 43c9-2 14 2 20 7'/%3E%3Cpath d='M36 41c8 1 12-4 18-7'/%3E%3Cpath d='M68 43c6 5 12 6 20 3'/%3E%3Cpath d='M101 20c-6 1-10 4-13 9'/%3E%3Cpath d='M55 72c6-5 13-6 21-3'/%3E%3C/g%3E%3C/svg%3E");
     }
 
     .bedrock-shale {
@@ -481,6 +562,20 @@
       letter-spacing: .02em;
     }
 
+    @media (max-width: 374px) {
+      .app { padding: 6px; }
+      .wrap { gap: 5px; }
+      .row { padding: 4px; }
+      .row-grid {
+        grid-template-columns: 1.65rem 2.05rem 2.42rem 2.02rem .25rem 2.02rem minmax(2.25rem, 1fr) 3.25rem 1.25rem;
+        gap: 2px;
+      }
+      .step-value { font-size: 12px; }
+      .step-value input { font-size: 12px; }
+      .type-stepper .step-value { font-size: 9px; }
+      .range-prefix { min-width: 13px; max-width: 15px; font-size: 8px; }
+      .cm-input.compact { width: 34px; font-size: 8px; }
+    }
 
   </style>
 </head>
@@ -534,6 +629,21 @@
     const VALUES = [2, 3, 4, 5, 6, 7, 8];
     const CHROMAS = [1, 2, 3, 4, 6, 8];
     const LAYERS = ["A", "B", "C"];
+    const SOIL_TYPES = [
+      "Type",
+      "Sand",
+      "Loamy Sand",
+      "Sandy Loam",
+      "Loam",
+      "Silt Loam",
+      "Silt",
+      "Silty Clay Loam",
+      "Clay Loam",
+      "Sandy Clay Loam",
+      "Silty Clay",
+      "Sandy Clay",
+      "Clay"
+    ];
     const DEFAULT_RENDER_DEPTH_CM = 50;
     const TRANSITION_RENDER = {
       yOffsetPx: 0,
@@ -555,9 +665,9 @@
       {
         id: 1,
         layers: {
-          A: { hueNumber: 10, hueFamily: "YR", value: 4, chroma: 2, active: true },
-          B: { hueNumber: 7.5, hueFamily: "YR", value: 5, chroma: 4, active: true },
-          C: { hueNumber: 10, hueFamily: "YR", value: 6, chroma: 4, active: false }
+          A: { hueNumber: 10, hueFamily: "YR", value: 4, chroma: 2, active: true, soilType: "Type" },
+          B: { hueNumber: 7.5, hueFamily: "YR", value: 5, chroma: 4, active: true, soilType: "Type" },
+          C: { hueNumber: 10, hueFamily: "YR", value: 6, chroma: 4, active: false, soilType: "Type" }
         },
         extents: { A: 9, B: 26, C: 35 }
       }
@@ -915,6 +1025,35 @@
       });
     }
 
+
+
+    function textureBasesForType(type) {
+      const t = String(type || "Type");
+      if (t === "Type") return [];
+      if (t === "Sand") return ["sand"];
+      if (t === "Silt") return ["silt"];
+      if (t === "Loam") return ["loam"];
+      if (t === "Clay") return ["clay"];
+      if (t === "Loamy Sand" || t === "Sandy Loam") return ["sand", "loam"];
+      if (t === "Silt Loam") return ["silt", "loam"];
+      if (t === "Clay Loam") return ["clay", "loam"];
+      if (t === "Silty Clay Loam") return ["silt", "clay", "loam"];
+      if (t === "Sandy Clay Loam") return ["sand", "clay", "loam"];
+      if (t === "Silty Clay") return ["silt", "clay"];
+      if (t === "Sandy Clay") return ["sand", "clay"];
+      return [];
+    }
+
+    function appendTextureOverlays(container, soilType) {
+      textureBasesForType(soilType).forEach((base, index, bases) => {
+        const overlay = document.createElement("div");
+        overlay.className = `soil-texture-overlay ${base}`;
+        overlay.style.opacity = bases.length > 1 ? String(0.36 / bases.length + 0.22) : "";
+        overlay.style.transform = index ? `translateY(${index * 5}px)` : "";
+        container.appendChild(overlay);
+      });
+    }
+
     function renderProfile(current) {
       renderRail(current);
       clearTransitionOverlays();
@@ -943,6 +1082,7 @@
         div.className = "soil-layer";
         div.style.flex = `${Math.max(segment.thickness, 1)} 1 0`;
         div.style.backgroundColor = soil;
+        appendTextureOverlays(div, color.soilType);
 
         if (layer === "A") {
           div.innerHTML += `
@@ -988,6 +1128,17 @@
       `;
     }
 
+    function renderTypeStepper(layer, value) {
+      const label = SOIL_TYPES.includes(value) ? value : "Type";
+      return `
+        <div class="stepper type-stepper ${label === "Type" ? "unset" : ""}" aria-label="${layer} soil texture type">
+          <button data-action="type-step" data-layer="${layer}" data-field="typeUp">⌃</button>
+          <div class="step-value"><span>${label}</span></div>
+          <button data-action="type-step" data-layer="${layer}" data-field="typeDown">⌄</button>
+        </div>
+      `;
+    }
+
     function renderRows(current) {
       const rows = $("rows");
       rows.innerHTML = LAYERS.map((layer) => {
@@ -1008,6 +1159,7 @@
               ${renderStepper(color.value, { action: "step", layer, field: "valueUp" }, { action: "step", layer, field: "valueDown" })}
               <div class="slash">/</div>
               ${renderStepper(color.chroma, { action: "step", layer, field: "chromaUp" }, { action: "step", layer, field: "chromaDown" })}
+              ${renderTypeStepper(layer, color.soilType || "Type")}
               ${active ? `
                 <div class="cm-wrap">
                   <span class="range-prefix">${prefix}</span>
@@ -1054,6 +1206,10 @@
           const field = el.dataset.field;
           if (action === "toggle") updateColor(layer, { active: !page().layers[layer].active });
           if (action === "clear-c") updateColor("C", { active: false });
+          if (action === "type-step") {
+            const currentType = page().layers[layer].soilType || "Type";
+            updateColor(layer, { soilType: nextFrom(SOIL_TYPES, currentType, field === "typeDown" ? 1 : -1), active: true });
+          }
           if (action === "step") {
             const currentColor = page().layers[layer];
             if (field === "hueNumberUp") updateColor(layer, { hueNumber: nextFrom(HUE_NUMBERS, currentColor.hueNumber, 1), active: true });
