@@ -58,12 +58,15 @@
       font-weight: 900;
       font-size: 17px;
       letter-spacing: -0.02em;
+      min-width: 0;
+      white-space: nowrap;
     }
 
     .controls {
       display: flex;
       align-items: center;
       gap: 4px;
+      flex-wrap: nowrap;
     }
 
     .topbtn {
@@ -113,12 +116,6 @@
       position: relative;
       height: 240px;
       overflow: hidden;
-    }
-
-    @media (min-width: 520px) {
-      .app { padding: 12px; }
-      .pit { height: 300px; }
-      .title { font-size: 18px; }
     }
 
     .grass1 {
@@ -337,7 +334,6 @@
     .stepper button:first-child { border-radius: 8px 8px 0 0; }
     .stepper button:last-child { border-radius: 0 0 8px 8px; }
 
-
     .type-stepper .step-value {
       font-size: 10px;
       letter-spacing: -0.04em;
@@ -457,8 +453,6 @@
       background: var(--stone-100);
     }
 
-
-
     .soil-texture-overlay {
       pointer-events: none;
       position: absolute;
@@ -577,6 +571,175 @@
       .cm-input.compact { width: 34px; font-size: 8px; }
     }
 
+    @media (max-width: 374px) {
+      .controls {
+        gap: 3px;
+      }
+
+      .topbtn {
+        padding: 5px 7px;
+      }
+    }
+
+    @media (min-width: 520px) {
+      .controls {
+        gap: 6px;
+      }
+    }
+
+    /* Responsive scaling only.
+       Core layout order is preserved:
+       topbar -> confirm -> profile -> render depth -> rows. */
+    @media (min-width: 520px) {
+      .app { padding: 12px; }
+      .wrap {
+        max-width: 520px;
+        gap: 8px;
+      }
+      .pit { height: 320px; }
+      .title { font-size: 18px; }
+    }
+
+    @media (min-width: 760px) {
+      .app {
+        padding: 18px;
+      }
+
+      .wrap {
+        max-width: 620px;
+        gap: 10px;
+      }
+
+      .topbar {
+        padding: 6px;
+      }
+
+      .title,
+      .title input {
+        font-size: 20px !important;
+      }
+
+      .topbtn {
+        min-width: 38px;
+        padding: 7px 12px;
+        font-size: 15px;
+      }
+
+      .pit {
+        height: min(56vh, 460px);
+        min-height: 380px;
+      }
+
+      .row {
+        padding: 7px;
+        border-radius: 18px;
+      }
+
+      .row-grid {
+        grid-template-columns: 2.05rem 2.65rem 3.1rem 2.65rem .45rem 2.65rem minmax(5.5rem, 1fr) 4.15rem 1.7rem;
+        gap: 5px;
+      }
+
+      .layer-toggle,
+      .clear-btn,
+      .empty-cell,
+      .cm-input {
+        height: 46px;
+      }
+
+      .stepper button {
+        height: 22px;
+        font-size: 13px;
+      }
+
+      .step-value {
+        height: 32px;
+        font-size: 16px;
+      }
+
+      .step-value input {
+        font-size: 16px;
+      }
+
+      .type-stepper .step-value {
+        font-size: 11px;
+      }
+
+      .cm-input.compact {
+        width: 44px;
+        height: 32px;
+        font-size: 10px;
+      }
+
+      .layer-label {
+        font-size: 32px;
+      }
+
+      .munsell-tag {
+        font-size: 13px;
+        padding: 3px 9px;
+      }
+
+      .render-label {
+        padding: 6px 10px;
+        font-size: 11px;
+      }
+    }
+
+    @media (min-width: 1080px) {
+      .wrap {
+        max-width: 700px;
+      }
+
+      .pit {
+        height: min(62vh, 560px);
+        min-height: 460px;
+      }
+
+      .row-grid {
+        grid-template-columns: 2.25rem 2.85rem 3.3rem 2.85rem .55rem 2.85rem minmax(7rem, 1fr) 4.6rem 1.9rem;
+      }
+
+      .row {
+        padding: 8px;
+      }
+
+      .topbar {
+        padding: 8px;
+      }
+    }
+
+    @media (orientation: landscape) and (max-height: 560px) and (min-width: 700px) {
+      .pit {
+        height: calc(100vh - 330px);
+        min-height: 260px;
+      }
+
+      .wrap {
+        max-width: 620px;
+        gap: 6px;
+      }
+
+      .row {
+        padding: 5px;
+      }
+
+      .layer-toggle,
+      .clear-btn,
+      .empty-cell,
+      .cm-input {
+        height: 40px;
+      }
+
+      .stepper button {
+        height: 19px;
+      }
+
+      .step-value {
+        height: 28px;
+      }
+    }
+
   </style>
 </head>
 <body>
@@ -588,10 +751,13 @@
           &nbsp;&nbsp;STP&nbsp;<input id="stpInput" style="width:36px;border:0;border-bottom:2px solid var(--stone-300);background:transparent;font:inherit;font-weight:900;font-size:17px;outline:none;padding:0 2px;" spellcheck="false" autocomplete="off" />
         </div>
         <div class="controls">
+          <button class="topbtn" id="saveFile">Save</button>
+          <button class="topbtn" id="loadFile">Load</button>
           <button class="topbtn" id="removePage">−</button>
           <button class="topbtn" id="addPage">+</button>
           <button class="topbtn" id="prevPage">←</button>
           <button class="topbtn" id="nextPage">→</button>
+          <input id="loadFileInput" type="file" accept="application/json,.json" hidden />
         </div>
       </header>
 
@@ -742,11 +908,6 @@
       return extents.B;
     }
 
-    function renumberPages(list) {
-      const start = list[0]?.id || 1;
-      return list.map((page, index) => ({ ...page, id: start + index }));
-    }
-
     function visibleLayerSegments(layers, extents, depth) {
       const segments = [];
       let top = 0;
@@ -782,7 +943,20 @@
 
     function setPage(updater) {
       pages = pages.map((p, i) => i === pageIndex ? updater(clone(p)) : p);
-      render();
+  
+    $("saveFile").addEventListener("click", saveCurrentFile);
+
+    $("loadFile").addEventListener("click", () => {
+      $("loadFileInput").click();
+    });
+
+    $("loadFileInput").addEventListener("change", (event) => {
+      const file = event.target.files && event.target.files[0];
+      loadFromFile(file);
+      event.target.value = "";
+    });
+
+    render();
     }
 
     function updateColor(layer, patch) {
@@ -816,7 +990,6 @@
       const nextPage = pages[insertAt];
 
       if (!renumberTail && nextPage && nextPage.id === newId) {
-        // Collision — prompt first
         setPending("add", `Add STP ${newId} here and renumber later pages?`);
         return;
       }
@@ -825,7 +998,6 @@
       let newPages  = [...pages.slice(0, insertAt), newPage, ...pages.slice(insertAt)];
 
       if (renumberTail) {
-        // Increment ids of everything after the inserted page to restore sequence
         for (let i = insertAt + 1; i < newPages.length; i++) {
           newPages[i] = { ...newPages[i], id: newPages[i].id + 1 };
         }
@@ -839,7 +1011,6 @@
 
     function removeCurrentPage() {
       if (pages.length <= 1) return;
-      // Remove only; do not renumber — STP ids are user-owned
       pages = pages.filter((_, i) => i !== pageIndex);
       pageIndex = clamp(pageIndex, 0, pages.length - 1);
       pendingAction = null;
@@ -923,10 +1094,8 @@
     document.addEventListener("touchend", endRailDrag);
     document.addEventListener("touchcancel", endRailDrag);
 
-    // Persistent rail elements — created once, never destroyed.
-    // Avoids stale-DOM drag bugs caused by innerHTML rebuilds mid-drag.
     let _railTrack = null;
-    const _railDots = {}; // keyed by handle key "AB" or "BC"
+    const _railDots = {};
 
     function ensureRailDOM() {
       const rail = $("rail");
@@ -1025,8 +1194,6 @@
       });
     }
 
-
-
     function textureBasesForType(type) {
       const t = String(type || "Type");
       if (t === "Type") return [];
@@ -1075,8 +1242,6 @@
         const layer = segment.layer;
         const color = segment.color;
         const soil = munsellToRgb(color);
-        const nextSegment = segments[index + 1];
-        const nextSoil = nextSegment ? munsellToRgb(nextSegment.color) : soil;
 
         const div = document.createElement("div");
         div.className = "soil-layer";
@@ -1268,6 +1433,85 @@
       }
     }
 
+
+    function safeFileStem(text) {
+      const cleaned = String(text || "")
+        .trim()
+        .replace(/[^\w.-]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      return cleaned || "transect";
+    }
+
+    function saveCurrentFile() {
+      const ctxInput = $("contextInput");
+      const stpInput = $("stpInput");
+
+      contextLabel = (ctxInput?.value || contextLabel || "transect").trim() || "transect";
+      const stpNumber = parseInt(stpInput?.value || page().id, 10);
+      if (stpNumber > 0) {
+        pages = pages.map((p, i) => i === pageIndex ? { ...p, id: stpNumber } : p);
+      }
+
+      const payload = {
+        app: "munsell-stp-displayer",
+        version: 1,
+        savedAt: new Date().toISOString(),
+        contextLabel,
+        pageIndex,
+        renderDepth,
+        pages
+      };
+
+      const filename = `${safeFileStem(contextLabel)}.json`;
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function normalizeLoadedPayload(payload) {
+      if (!payload || typeof payload !== "object") return null;
+      const loadedPages = Array.isArray(payload.pages) ? payload.pages : null;
+      if (!loadedPages || !loadedPages.length) return null;
+
+      return {
+        contextLabel: String(payload.contextLabel || "01"),
+        pageIndex: clamp(Number(payload.pageIndex) || 0, 0, loadedPages.length - 1),
+        renderDepth: Math.max(1, Number(payload.renderDepth) || DEFAULT_RENDER_DEPTH_CM),
+        pages: loadedPages
+      };
+    }
+
+    function loadFromFile(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(String(reader.result || ""));
+          const normalized = normalizeLoadedPayload(parsed);
+          if (!normalized) {
+            setPending("load-error", "Could not load this save file.");
+            return;
+          }
+
+          contextLabel = normalized.contextLabel;
+          pageIndex = normalized.pageIndex;
+          renderDepth = normalized.renderDepth;
+          pages = normalized.pages;
+          pendingAction = null;
+          render();
+        } catch {
+          setPending("load-error", "Could not read this save file.");
+        }
+      };
+      reader.readAsText(file);
+    }
+
     function render() {
       const current = page();
       bindTopBarInputs(current);
@@ -1305,7 +1549,11 @@
     $("confirmYes").addEventListener("click", () => {
       if (!pendingAction) return;
       if (pendingAction.type === "add") insertPageAfterCurrent(true);
-      if (pendingAction.type === "remove") removeCurrentPage();
+      else if (pendingAction.type === "remove") removeCurrentPage();
+      else {
+        pendingAction = null;
+        render();
+      }
     });
 
     $("confirmNo").addEventListener("click", () => {
