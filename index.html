@@ -752,7 +752,7 @@
         </div>
         <div class="controls">
           <button class="topbtn" id="saveFile">Save</button>
-          <button class="topbtn" id="loadFile">Load</button>
+          <button class="topbtn" id="loadFile">Load…</button>
           <button class="topbtn" id="removePage">−</button>
           <button class="topbtn" id="addPage">+</button>
           <button class="topbtn" id="prevPage">←</button>
@@ -1392,12 +1392,26 @@
 
     function renderConfirm() {
       const box = $("confirmBox");
+      const yes = $("confirmYes");
+      const no = $("confirmNo");
+
       if (!pendingAction) {
         box.classList.remove("show");
+        yes.textContent = "yes";
+        no.style.display = "";
         return;
       }
+
       $("confirmText").textContent = pendingAction.text;
       box.classList.add("show");
+
+      if (pendingAction.type === "status" || pendingAction.type === "load-error") {
+        yes.textContent = "OK";
+        no.style.display = "none";
+      } else {
+        yes.textContent = "yes";
+        no.style.display = "";
+      }
     }
 
     function renderRenderDepth() {
@@ -1434,35 +1448,45 @@
     }
 
 
-    function safeFileStem(text) {
-      const cleaned = String(text || "")
-        .trim()
-        .replace(/[^\w.-]+/g, "_")
-        .replace(/^_+|_+$/g, "");
-      return cleaned || "transect";
+
+    function transectFileName() {
+      const ctxInput = $("contextInput");
+      const raw = String(ctxInput?.value || contextLabel || "transect").trim();
+      const cleaned = raw
+        .replace(/[\\/:*?"<>|]+/g, "-")
+        .replace(/\s+/g, "_")
+        .replace(/^-+|-+$/g, "");
+      return `${cleaned || "transect"}.json`;
+    }
+
+    function showStatus(message) {
+      setPending("status", message);
     }
 
     function saveCurrentFile() {
       const ctxInput = $("contextInput");
       const stpInput = $("stpInput");
 
-      contextLabel = (ctxInput?.value || contextLabel || "transect").trim() || "transect";
+      contextLabel = String(ctxInput?.value || contextLabel || "transect").trim() || "transect";
+
       const stpNumber = parseInt(stpInput?.value || page().id, 10);
       if (stpNumber > 0) {
         pages = pages.map((p, i) => i === pageIndex ? { ...p, id: stpNumber } : p);
       }
 
+      const filename = transectFileName();
+
       const payload = {
         app: "munsell-stp-displayer",
-        version: 1,
+        version: 2,
         savedAt: new Date().toISOString(),
+        transect: contextLabel,
         contextLabel,
         pageIndex,
         renderDepth,
         pages
       };
 
-      const filename = `${safeFileStem(contextLabel)}.json`;
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -1472,6 +1496,8 @@
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
+
+      showStatus(`Saved ${filename} to Downloads.`);
     }
 
     function normalizeLoadedPayload(payload) {
@@ -1479,8 +1505,10 @@
       const loadedPages = Array.isArray(payload.pages) ? payload.pages : null;
       if (!loadedPages || !loadedPages.length) return null;
 
+      const transect = payload.transect || payload.contextLabel || "01";
+
       return {
-        contextLabel: String(payload.contextLabel || "01"),
+        contextLabel: String(transect),
         pageIndex: clamp(Number(payload.pageIndex) || 0, 0, loadedPages.length - 1),
         renderDepth: Math.max(1, Number(payload.renderDepth) || DEFAULT_RENDER_DEPTH_CM),
         pages: loadedPages
@@ -1495,7 +1523,7 @@
           const parsed = JSON.parse(String(reader.result || ""));
           const normalized = normalizeLoadedPayload(parsed);
           if (!normalized) {
-            setPending("load-error", "Could not load this save file.");
+            showStatus("Could not load this file. Pick a saved Munsell JSON file.");
             return;
           }
 
@@ -1505,8 +1533,9 @@
           pages = normalized.pages;
           pendingAction = null;
           render();
+          showStatus(`Loaded ${file.name}.`);
         } catch {
-          setPending("load-error", "Could not read this save file.");
+          showStatus("Could not read this file. Pick a saved Munsell JSON file.");
         }
       };
       reader.readAsText(file);
