@@ -1099,6 +1099,7 @@
     const LOCAL_SAVE_KEY = "munsell-stp-local-working-save-v1";
     let pendingImportFile = null;
     let pendingImportPayload = null;
+    let pendingStpMerge = null;
     let artifactRevealNonce = Date.now();
     let showArtifactLabels = true;
 
@@ -1959,6 +1960,112 @@
     }
 
 
+
+    function stpKey(page) {
+      return String(page?.id ?? "").trim();
+    }
+
+    function analyzeStpMerge(imported) {
+      const result = {
+        newTransects: {},
+        duplicateTransectsWithNewStps: {},
+        skippedTransects: 0,
+        addedTransectCount: 0,
+        candidateStpCount: 0,
+        duplicateStpCount: 0
+      };
+
+      Object.entries(imported).forEach(([name, snapshot]) => {
+        if (!transectStore[name]) {
+          result.newTransects[name] = snapshot;
+          result.addedTransectCount += 1;
+          return;
+        }
+
+        const localPages = Array.isArray(transectStore[name].pages) ? transectStore[name].pages : [];
+        const importPages = Array.isArray(snapshot.pages) ? snapshot.pages : [];
+        const localIds = new Set(localPages.map(stpKey).filter(Boolean));
+
+        const newPages = [];
+        importPages.forEach((p) => {
+          const key = stpKey(p);
+          if (key && localIds.has(key)) {
+            result.duplicateStpCount += 1;
+            return;
+          }
+          newPages.push(p);
+        });
+
+        if (newPages.length) {
+          result.duplicateTransectsWithNewStps[name] = {
+            snapshot,
+            pages: newPages
+          };
+          result.candidateStpCount += newPages.length;
+        } else {
+          result.skippedTransects += 1;
+        }
+      });
+
+      return result;
+    }
+
+    function applyPendingStpMerge(addStps) {
+      if (!pendingStpMerge) return;
+
+      let addedStps = 0;
+      let skippedDuplicateStps = pendingStpMerge.duplicateStpCount || 0;
+
+      Object.entries(pendingStpMerge.newTransects || {}).forEach(([name, snapshot]) => {
+        transectStore[name] = snapshot;
+      });
+
+      if (addStps) {
+        Object.entries(pendingStpMerge.duplicateTransectsWithNewStps || {}).forEach(([name, merge]) => {
+          const local = transectStore[name];
+          if (!local || !Array.isArray(local.pages)) return;
+
+          const existingIds = new Set(local.pages.map(stpKey).filter(Boolean));
+          const toAdd = merge.pages.filter((p) => {
+            const key = stpKey(p);
+            return !key || !existingIds.has(key);
+          });
+
+          local.pages = [...local.pages, ...toAdd].sort((a, b) => {
+            const ax = Number(a.id);
+            const bx = Number(b.id);
+            if (Number.isFinite(ax) && Number.isFinite(bx)) return ax - bx;
+            return stpKey(a).localeCompare(stpKey(b), undefined, { numeric: true });
+          });
+
+          addedStps += toAdd.length;
+        });
+      }
+
+      const names = Object.keys(transectStore).sort(naturalTransectSort);
+      const active = activeTransectName && transectStore[activeTransectName]
+        ? activeTransectName
+        : names[0];
+
+      pendingStpMerge = null;
+
+      if (active && transectStore[active]) {
+        applyTransectSnapshot(active, transectStore[active]);
+      } else {
+        refreshTransectDropdown();
+        render();
+      }
+
+      saveLocalWorkingState();
+
+      const addedTransects = Object.keys(transectStore).length ? "" : "";
+      if (addStps) {
+        showStatus(`Merged STPs ${addedStps}. Skipped ${skippedDuplicateStps}.`);
+      } else {
+        showStatus("Skipped duplicate transect STPs.");
+      }
+    }
+
     function applyImportedPayload(normalized, mode) {
       if (!normalized || !normalized.transects) {
         showStatus("Could not import this file.");
@@ -1966,8 +2073,6 @@
       }
 
       const imported = normalized.transects;
-      let added = 0;
-      let skipped = 0;
 
       if (mode === "replace") {
         transectStore = imported;
@@ -1987,14 +2092,22 @@
         return;
       }
 
-      Object.entries(imported).forEach(([name, snapshot]) => {
-        if (transectStore[name]) {
-          skipped += 1;
-          return;
-        }
+      const analysis = analyzeStpMerge(imported);
+
+      Object.entries(analysis.newTransects).forEach(([name, snapshot]) => {
         transectStore[name] = snapshot;
-        added += 1;
       });
+
+      const duplicateNamesWithNewStps = Object.keys(analysis.duplicateTransectsWithNewStps);
+
+      if (duplicateNamesWithNewStps.length) {
+        pendingStpMerge = analysis;
+        setPending(
+          "merge-duplicate-stps",
+          `${duplicateNamesWithNewStps.join(", ")} already exists. Add new STPs?`
+        );
+        return;
+      }
 
       const names = Object.keys(transectStore).sort(naturalTransectSort);
       const active = activeTransectName && transectStore[activeTransectName]
@@ -2009,8 +2122,12 @@
       }
 
       saveLocalWorkingState();
-      if (added > 0) showStatus(`Merged ${added}. Skipped ${skipped}.`);
-      else showStatus(`No new transects. Skipped ${skipped}.`);
+
+      if (analysis.addedTransectCount > 0) {
+        showStatus(`Merged ${analysis.addedTransectCount}. Skipped ${analysis.skippedTransects}.`);
+      } else {
+        showStatus(`No new transects. Skipped ${analysis.skippedTransects}.`);
+      }
     }
 
     function loadTransectFile(file) {
@@ -2269,6 +2386,10 @@ function renderConfirm() {
         pendingImportPayload = null;
         applyImportedPayload(payload, "merge");
       }
+      else if (pendingAction.type === "merge-duplicate-stps") {
+        pendingAction = null;
+        applyPendingStpMerge(true);
+      }
       else {
         pendingAction = null;
         render();
@@ -2291,8 +2412,18 @@ function renderConfirm() {
         return;
       }
 
+      if (pendingAction?.type === "merge-duplicate-stps") {
+        pendingAction = null;
+        applyPendingStpMerge(false);
+        return;
+      }
+
       if (pendingAction?.type === "confirm-download-export") {
         pendingDownloadExport = null;
+      }
+
+      if (pendingAction?.type === "merge-duplicate-stps") {
+        pendingStpMerge = null;
       }
 
       pendingAction = null;
