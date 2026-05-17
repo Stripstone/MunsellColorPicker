@@ -336,6 +336,61 @@
       z-index: 40;
     }
 
+    .artifact-overlay {
+      pointer-events: none;
+      position: absolute;
+      inset: 0 36px 0 0;
+      z-index: 45;
+    }
+
+    .artifact-marker {
+      position: absolute;
+      left: 52%;
+      transform: translate(-50%, -50%);
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.62);
+      box-shadow: 0 1px 5px rgba(0,0,0,.18);
+      font-size: 19px;
+      line-height: 1;
+      backdrop-filter: blur(3px);
+    }
+
+    .artifact-tag {
+      position: absolute;
+      left: calc(100% + 6px);
+      top: 50%;
+      transform: translateY(-50%);
+      border-radius: 999px;
+      background: rgba(255,255,255,.82);
+      color: var(--stone-900);
+      padding: 2px 7px;
+      font-size: 10px;
+      font-weight: 900;
+      white-space: nowrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,.12);
+      opacity: 0;
+      animation: artifactTagFade 2.2s ease-out forwards;
+    }
+
+    @keyframes artifactTagFade {
+      0% { opacity: 0; transform: translateY(-50%) translateX(-6px) scale(.97); }
+      10% { opacity: 1; transform: translateY(-50%) translateX(0) scale(1); }
+      82% { opacity: 1; transform: translateY(-50%) translateX(0) scale(1); }
+      100% { opacity: 0; transform: translateY(-50%) translateX(4px) scale(.98); }
+    }
+
+    .layer-toggle.has-artifact::after {
+      content: attr(data-artifact);
+      display: block;
+      margin-top: -2px;
+      font-size: 12px;
+      line-height: 1;
+    }
+
     .soil-layer {
       position: relative;
       min-height: 0;
@@ -956,6 +1011,7 @@
           <div class="render-viewport" id="renderViewport">
             <div class="soil-stack" id="soilStack"></div>
             <div class="labels-overlay" id="labelsOverlay"></div>
+            <div class="artifact-overlay" id="artifactOverlay"></div>
             <div class="rail" id="rail"></div>
           </div>
         </div>
@@ -975,6 +1031,16 @@
     const VALUES = [2, 3, 4, 5, 6, 7, 8];
     const CHROMAS = [1, 2, 3, 4, 6, 8];
     const LAYERS = ["A", "B", "C"];
+    const ARTIFACT_TYPES = ["", "🪨", "🏺", "🦴", "🔩", "🐚", "❓"];
+
+    const ARTIFACT_LABELS = {
+      "🪨": "Lithic",
+      "🏺": "Ceramic",
+      "🦴": "Bone",
+      "🔩": "Metal",
+      "🐚": "Shell",
+      "❓": "Unknown"
+    };
     const SOIL_TYPES = [
       "Type",
       "Loam",
@@ -1015,7 +1081,8 @@
           B: { hueNumber: 7.5, hueFamily: "YR", value: 5, chroma: 4, active: true, soilType: "Type" },
           C: { hueNumber: 10, hueFamily: "YR", value: 6, chroma: 4, active: false, soilType: "Type" }
         },
-        extents: { A: 9, B: 26, C: 35 }
+        extents: { A: 9, B: 26, C: 35 },
+        artifacts: { A: "", B: "", C: "" }
       }
     ];
 
@@ -1029,6 +1096,11 @@
     let dirtyTransect = false;
     let pendingSelectionName = "";
     let pendingDownloadExport = null;
+    const LOCAL_SAVE_KEY = "munsell-stp-local-working-save-v1";
+    let pendingImportFile = null;
+    let pendingImportPayload = null;
+    let artifactRevealNonce = Date.now();
+    let showArtifactLabels = true;
 
     const $ = (id) => document.getElementById(id);
     const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
@@ -1122,12 +1194,22 @@
       return handles;
     }
 
+    function ensurePageShape(p) {
+      if (!p.artifacts || typeof p.artifacts !== "object") {
+        p.artifacts = { A: "", B: "", C: "" };
+      }
+      for (const layer of LAYERS) {
+        if (typeof p.artifacts[layer] !== "string") p.artifacts[layer] = "";
+      }
+      return p;
+    }
+
     function page() {
-      return pages[clamp(pageIndex, 0, pages.length - 1)];
+      return ensurePageShape(pages[clamp(pageIndex, 0, pages.length - 1)]);
     }
 
     function setPage(updater) {
-      pages = pages.map((p, i) => i === pageIndex ? updater(clone(p)) : p);
+      pages = pages.map((p, i) => i === pageIndex ? ensurePageShape(updater(clone(p))) : p);
   
     render();
     }
@@ -1156,6 +1238,31 @@
       });
     }
 
+    function cycleArtifact(layer) {
+      setPage((p) => {
+        ensurePageShape(p);
+        const current = p.artifacts[layer] || "";
+        const idx = ARTIFACT_TYPES.indexOf(current);
+        p.artifacts[layer] = ARTIFACT_TYPES[(idx < 0 ? 0 : idx + 1) % ARTIFACT_TYPES.length];
+        revealArtifactLabels();
+        return p;
+      });
+    }
+
+    function clearArtifact(layer) {
+      if (!page().artifacts?.[layer]) return;
+      setPage((p) => {
+        ensurePageShape(p);
+        p.artifacts[layer] = "";
+        return p;
+      });
+    }
+
+    function revealArtifactLabels() {
+      showArtifactLabels = true;
+      artifactRevealNonce = Date.now();
+    }
+
     function insertPageAfterCurrent(renumberTail = false) {
       const current = page();
       const newId   = current.id + 1;
@@ -1168,6 +1275,7 @@
       }
 
       const newPage = { ...clone(current), id: newId };
+      newPage.artifacts = { A: "", B: "", C: "" };
       let newPages  = [...pages.slice(0, insertAt), newPage, ...pages.slice(insertAt)];
 
       if (renumberTail) {
@@ -1369,6 +1477,37 @@
       });
     }
 
+    function renderArtifactOverlay(current, segments) {
+      const overlay = $("artifactOverlay");
+      overlay.innerHTML = "";
+      let topCm = 0;
+
+      segments.forEach((segment, index) => {
+        const marker = current.artifacts?.[segment.layer] || "";
+        const centerCm = topCm + Math.max(segment.thickness, 0) / 2;
+        topCm += Math.max(segment.thickness, 0);
+
+        if (!marker) return;
+
+        const dot = document.createElement("div");
+        dot.className = "artifact-marker";
+        dot.textContent = marker;
+        dot.title = `${segment.layer} artifact`;
+        dot.style.top = `${cmToPct(centerCm, renderDepth)}%`;
+        dot.style.left = `${50 + (index - 1) * 7}%`;
+
+        if (showArtifactLabels) {
+          const tag = document.createElement("div");
+          tag.className = "artifact-tag";
+          tag.textContent = ARTIFACT_LABELS[marker] || "Artifact";
+          tag.dataset.reveal = String(artifactRevealNonce);
+          dot.appendChild(tag);
+        }
+
+        overlay.appendChild(dot);
+      });
+    }
+
     function textureBasesForType(type) {
       const t = String(type || "Type");
       if (t === "Type") return [];
@@ -1401,9 +1540,12 @@
       clearTransitionOverlays();
       const stack = $("soilStack");
       const labels = $("labelsOverlay");
+      const artifacts = $("artifactOverlay");
       const segments = visibleLayerSegments(current.layers, current.extents, renderDepth);
+      ensurePageShape(current);
       stack.innerHTML = "";
       labels.innerHTML = "";
+      artifacts.innerHTML = "";
 
       if (!segments.length) {
         stack.innerHTML = `<div style="display:flex;flex:1;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:var(--stone-600)">no layers in render depth</div>`;
@@ -1437,6 +1579,8 @@
 
       renderTransitionOverlays(segments);
       renderLabelsOverlay(segments);
+      renderArtifactOverlay(current, segments);
+      showArtifactLabels = false;
 
       const remainingRenderDepth = Math.max(renderDepth - renderedThickness, 0);
       if (remainingRenderDepth > 0) {
@@ -1493,7 +1637,7 @@
         return `
           <div class="row ${active ? "" : "off"}">
             <div class="row-grid">
-              <button class="layer-toggle" data-action="toggle" data-layer="${layer}">${layer}</button>
+              <button class="layer-toggle ${current.artifacts?.[layer] ? "has-artifact" : ""}" data-action="toggle" data-layer="${layer}" data-artifact="${current.artifacts?.[layer] || ""}">${layer}</button>
               ${renderStepper(color.hueFamily === "GLEY" ? "—" : color.hueNumber, { action: "step", layer, field: "hueNumberUp" }, { action: "step", layer, field: "hueNumberDown" })}
               ${renderStepper(color.hueFamily, { action: "step", layer, field: "familyUp" }, { action: "step", layer, field: "familyDown" }, hueFamilyInput)}
               ${renderStepper(color.value, { action: "step", layer, field: "valueUp" }, { action: "step", layer, field: "valueDown" })}
@@ -1540,12 +1684,29 @@
       });
 
       rows.querySelectorAll("[data-action]").forEach((el) => {
+        el.addEventListener("dblclick", (event) => {
+          if (el.dataset.action === "toggle") {
+            event.preventDefault();
+            clearArtifact(el.dataset.layer);
+          }
+        });
+
         el.addEventListener("click", () => {
           const action = el.dataset.action;
           const layer = el.dataset.layer;
           const field = el.dataset.field;
-          if (action === "toggle") updateColor(layer, { active: !page().layers[layer].active });
-          if (action === "clear-c") updateColor("C", { active: false });
+          if (action === "toggle") {
+            if (page().layers[layer].active) cycleArtifact(layer);
+            else updateColor(layer, { active: true });
+          }
+          if (action === "clear-c") {
+            setPage((p) => {
+              p.layers.C.active = false;
+              ensurePageShape(p);
+              p.artifacts.C = "";
+              return p;
+            });
+          }
           if (action === "type-step") {
             const currentType = page().layers[layer].soilType || "Type";
             updateColor(layer, { soilType: nextFrom(SOIL_TYPES, currentType, field === "typeDown" ? 1 : -1), active: true });
@@ -1565,6 +1726,60 @@
       });
     }
 
+
+
+    function localSavePayload() {
+      return {
+        app: "munsell-stp-displayer",
+        version: 1,
+        savedAt: new Date().toISOString(),
+        activeTransectName,
+        contextLabel,
+        pageIndex,
+        renderDepth,
+        pages: clone(pages),
+        transects: transectStore,
+        dirtyTransect
+      };
+    }
+
+    function saveLocalWorkingState() {
+      try {
+        localStorage.setItem(LOCAL_SAVE_KEY, JSON.stringify(localSavePayload()));
+      } catch {
+        // Local storage may be unavailable in some private/browser contexts.
+      }
+    }
+
+    function restoreLocalWorkingState() {
+      try {
+        const raw = localStorage.getItem(LOCAL_SAVE_KEY);
+        if (!raw) return false;
+
+        const saved = JSON.parse(raw);
+        if (!saved || saved.app !== "munsell-stp-displayer") return false;
+
+        transectStore = saved.transects && typeof saved.transects === "object" ? saved.transects : {};
+        activeTransectName = String(saved.activeTransectName || "");
+        contextLabel = String(saved.contextLabel || activeTransectName || "T-01");
+        renderDepth = Math.max(1, Number(saved.renderDepth) || DEFAULT_RENDER_DEPTH_CM);
+
+        if (Array.isArray(saved.pages) && saved.pages.length) {
+          pages = saved.pages.map(ensurePageShape);
+          pageIndex = clamp(Number(saved.pageIndex) || 0, 0, pages.length - 1);
+        } else if (activeTransectName && transectStore[activeTransectName]) {
+          const snapshot = transectStore[activeTransectName];
+          pages = clone(snapshot.pages).map(ensurePageShape);
+          pageIndex = clamp(Number(snapshot.pageIndex) || 0, 0, pages.length - 1);
+          renderDepth = Math.max(1, Number(snapshot.renderDepth) || DEFAULT_RENDER_DEPTH_CM);
+        }
+
+        dirtyTransect = Boolean(saved.dirtyTransect);
+        return true;
+      } catch {
+        return false;
+      }
+    }
 
     function currentTransectName() {
       return String($("contextInput")?.value || contextLabel || "").trim();
@@ -1595,11 +1810,12 @@
       if (!snapshot || !Array.isArray(snapshot.pages) || !snapshot.pages.length) return false;
 
       contextLabel = String(snapshot.name || snapshot.transect || name || "T-01");
-      pages = clone(snapshot.pages);
+      pages = clone(snapshot.pages).map(ensurePageShape);
       pageIndex = clamp(Number(snapshot.pageIndex) || 0, 0, pages.length - 1);
       renderDepth = Math.max(1, Number(snapshot.renderDepth) || DEFAULT_RENDER_DEPTH_CM);
       activeTransectName = contextLabel;
       dirtyTransect = false;
+      revealArtifactLabels();
       pendingAction = null;
       render();
       return true;
@@ -1742,6 +1958,61 @@
       return null;
     }
 
+
+    function applyImportedPayload(normalized, mode) {
+      if (!normalized || !normalized.transects) {
+        showStatus("Could not import this file.");
+        return;
+      }
+
+      const imported = normalized.transects;
+      let added = 0;
+      let skipped = 0;
+
+      if (mode === "replace") {
+        transectStore = imported;
+        const names = Object.keys(transectStore).sort(naturalTransectSort);
+        const active = normalized.active && transectStore[normalized.active] ? normalized.active : names[0];
+
+        if (active) {
+          applyTransectSnapshot(active, transectStore[active]);
+        } else {
+          activeTransectName = "";
+          refreshTransectDropdown();
+          render();
+        }
+
+        saveLocalWorkingState();
+        showStatus("Imported.");
+        return;
+      }
+
+      Object.entries(imported).forEach(([name, snapshot]) => {
+        if (transectStore[name]) {
+          skipped += 1;
+          return;
+        }
+        transectStore[name] = snapshot;
+        added += 1;
+      });
+
+      const names = Object.keys(transectStore).sort(naturalTransectSort);
+      const active = activeTransectName && transectStore[activeTransectName]
+        ? activeTransectName
+        : names[0];
+
+      if (active && transectStore[active]) {
+        applyTransectSnapshot(active, transectStore[active]);
+      } else {
+        refreshTransectDropdown();
+        render();
+      }
+
+      saveLocalWorkingState();
+      if (added > 0) showStatus(`Merged ${added}. Skipped ${skipped}.`);
+      else showStatus(`No new transects. Skipped ${skipped}.`);
+    }
+
     function loadTransectFile(file) {
       if (!file) return;
 
@@ -1756,13 +2027,8 @@
             return;
           }
 
-          transectStore = normalized.transects;
-          const names = Object.keys(transectStore).sort(naturalTransectSort);
-          const active = normalized.active && transectStore[normalized.active] ? normalized.active : names[0];
-
-          refreshTransectDropdown();
-          applyTransectSnapshot(active, transectStore[active]);
-          showStatus("Imported.");
+          pendingImportPayload = normalized;
+          setPending("import-mode", "Import file?");
         } catch {
           showStatus("Could not read this file.");
         }
@@ -1771,8 +2037,6 @@
       reader.readAsText(file);
     }
 
-    
-    
     async function saveTransectFile() {
       if (dirtyTransect) {
         setPending("save-file-dirty", "Add changes before export?");
@@ -1921,6 +2185,7 @@ function renderConfirm() {
       $("prevPage").disabled = pageIndex <= 0;
       $("nextPage").disabled = pageIndex >= pages.length - 1;
 
+      saveLocalWorkingState();
       refreshTransectDropdown();
       renderConfirm();
       renderProfile(current);
@@ -1939,12 +2204,14 @@ function renderConfirm() {
 
     $("prevPage").addEventListener("click", () => {
       pageIndex = clamp(pageIndex - 1, 0, pages.length - 1);
+      revealArtifactLabels();
       pendingAction = null;
       render();
     });
 
     $("nextPage").addEventListener("click", () => {
       pageIndex = clamp(pageIndex + 1, 0, pages.length - 1);
+      revealArtifactLabels();
       pendingAction = null;
       render();
     });
@@ -1991,6 +2258,17 @@ function renderConfirm() {
 
         showStatus("Exported to Downloads.");
       }
+      else if (pendingAction.type === "confirm-import-replace") {
+        pendingAction = null;
+        render();
+        $("loadTransectFileInput").click();
+      }
+      else if (pendingAction.type === "import-mode") {
+        const payload = pendingImportPayload;
+        pendingAction = null;
+        pendingImportPayload = null;
+        applyImportedPayload(payload, "merge");
+      }
       else {
         pendingAction = null;
         render();
@@ -2002,6 +2280,14 @@ function renderConfirm() {
         pendingAction = null;
         dirtyTransect = false;
         saveTransectFile();
+        return;
+      }
+
+      if (pendingAction?.type === "import-mode") {
+        const payload = pendingImportPayload;
+        pendingAction = null;
+        pendingImportPayload = null;
+        applyImportedPayload(payload, "replace");
         return;
       }
 
@@ -2024,8 +2310,7 @@ function renderConfirm() {
     });
 
     $("loadTransectFile").addEventListener("click", () => {
-      showStatus("Choose from Downloads.");
-      setTimeout(() => $("loadTransectFileInput").click(), 60);
+      $("loadTransectFileInput").click();
     });
 
     $("loadTransectFileInput").addEventListener("change", (event) => {
@@ -2036,6 +2321,7 @@ function renderConfirm() {
 
     $("saveTransectFile").addEventListener("click", saveTransectFile);
 
+    restoreLocalWorkingState();
     render();
   </script>
 </body>
