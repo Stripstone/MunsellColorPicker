@@ -1028,6 +1028,7 @@
     let activeTransectName = "";
     let dirtyTransect = false;
     let pendingSelectionName = "";
+    let pendingDownloadExport = null;
 
     const $ = (id) => document.getElementById(id);
     const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
@@ -1771,6 +1772,7 @@
     }
 
     
+    
     async function saveTransectFile() {
       if (dirtyTransect) {
         setPending("save-file-dirty", "Add changes before export?");
@@ -1787,20 +1789,45 @@
 
       const json = JSON.stringify(payload, null, 2);
       const blob = new Blob([json], { type: "application/json" });
+      const filename = "STP_File.json";
 
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: [
+              {
+                description: "STP JSON file",
+                accept: { "application/json": [".json"] }
+              }
+            ]
+          });
 
-      link.href = url;
-      link.download = "STP_File.json";
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
 
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+          showStatus("Exported.");
+          return;
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            showStatus("Export canceled.");
+            return;
+          }
+        }
+      }
 
-      URL.revokeObjectURL(url);
+      pendingAction = {
+        type: "confirm-download-export",
+        text: "Export to Downloads?"
+      };
 
-      showStatus("Exported to Downloads.");
+      pendingDownloadExport = {
+        blob,
+        filename
+      };
+
+      render();
     }
 
 function renderConfirm() {
@@ -1943,6 +1970,27 @@ function renderConfirm() {
         pendingAction = null;
         saveTransectFile();
       }
+      else if (pendingAction.type === "confirm-download-export") {
+        const exportData = pendingDownloadExport;
+        pendingAction = null;
+        pendingDownloadExport = null;
+
+        if (exportData) {
+          const url = URL.createObjectURL(exportData.blob);
+          const link = document.createElement("a");
+
+          link.href = url;
+          link.download = exportData.filename;
+
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+
+          URL.revokeObjectURL(url);
+        }
+
+        showStatus("Exported to Downloads.");
+      }
       else {
         pendingAction = null;
         render();
@@ -1955,6 +2003,10 @@ function renderConfirm() {
         dirtyTransect = false;
         saveTransectFile();
         return;
+      }
+
+      if (pendingAction?.type === "confirm-download-export") {
+        pendingDownloadExport = null;
       }
 
       pendingAction = null;
