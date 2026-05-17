@@ -935,8 +935,8 @@
         </select>
         <button class="transect-mini-action" id="addTransect" type="button" title="Add current transect">+</button>
         <button class="transect-mini-action danger" id="removeTransect" type="button" title="Remove selected transect">−</button>
-        <button class="transect-action" id="loadTransectFile" type="button">Load File…</button>
-        <button class="transect-action" id="saveTransectFile" type="button">Save File…</button>
+        <button class="transect-action" id="loadTransectFile" type="button">Import</button>
+        <button class="transect-action" id="saveTransectFile" type="button">Export</button>
         <input id="loadTransectFileInput" type="file" accept="application/json,.json" hidden />
       </div>
 
@@ -1751,7 +1751,7 @@
           const normalized = normalizeLoadedFile(parsed);
 
           if (!normalized || !Object.keys(normalized.transects).length) {
-            showStatus("Could not load this file.");
+            showStatus("Could not import this file.");
             return;
           }
 
@@ -1761,7 +1761,7 @@
 
           refreshTransectDropdown();
           applyTransectSnapshot(active, transectStore[active]);
-          showStatus(`Loaded ${file.name}.`);
+          showStatus("Imported.");
         } catch {
           showStatus("Could not read this file.");
         }
@@ -1770,9 +1770,10 @@
       reader.readAsText(file);
     }
 
+    
     async function saveTransectFile() {
       if (dirtyTransect) {
-        setPending("save-file-dirty", "Add current changes before saving file?");
+        setPending("save-file-dirty", "Add changes before export?");
         return;
       }
 
@@ -1786,49 +1787,23 @@
 
       const json = JSON.stringify(payload, null, 2);
       const blob = new Blob([json], { type: "application/json" });
-      const suggestedName = "STP_File.json";
 
-      // Best UX where supported: opens the browser/device Save dialog.
-      if (window.showSaveFilePicker) {
-        try {
-          const handle = await window.showSaveFilePicker({
-            suggestedName,
-            types: [
-              {
-                description: "Munsell STP JSON file",
-                accept: { "application/json": [".json"] }
-              }
-            ]
-          });
-          const writable = await handle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          showStatus(`Saved ${suggestedName}.`);
-          return;
-        } catch (err) {
-          if (err && err.name === "AbortError") {
-            showStatus("Save canceled.");
-            return;
-          }
-          // Fall through to download if the picker fails for browser/security reasons.
-        }
-      }
-
-      // Fallback UX: most mobile/Safari browsers do not expose a Save As picker.
-      // This will go to the browser's normal Downloads location.
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
+
       link.href = url;
-      link.download = suggestedName;
+      link.download = "STP_File.json";
+
       document.body.appendChild(link);
       link.click();
       link.remove();
+
       URL.revokeObjectURL(url);
 
-      showStatus(`${suggestedName} downloaded. Check your browser/device Downloads folder.`);
+      showStatus("Exported to Downloads.");
     }
 
-    function renderConfirm() {
+function renderConfirm() {
       const box = $("confirmBox");
       const yes = $("confirmYes");
       const no = $("confirmNo");
@@ -1997,7 +1972,8 @@
     });
 
     $("loadTransectFile").addEventListener("click", () => {
-      $("loadTransectFileInput").click();
+      showStatus("Choose from Downloads.");
+      setTimeout(() => $("loadTransectFileInput").click(), 60);
     });
 
     $("loadTransectFileInput").addEventListener("change", (event) => {
