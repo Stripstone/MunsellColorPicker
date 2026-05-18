@@ -88,6 +88,43 @@
       flex-wrap: wrap;
     }
 
+    .team-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 132px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.72);
+      color: var(--stone-600);
+      padding: 5px 6px 5px 9px;
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 900;
+      box-shadow: 0 1px 5px rgba(0,0,0,.06);
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .team-pill span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .team-pill button {
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: var(--stone-100);
+      color: var(--stone-600);
+      font-size: 13px;
+      line-height: 1;
+      font-weight: 900;
+      padding: 0;
+      flex: 0 0 auto;
+    }
+
     .topbtn {
       border-radius: 9px;
       background: white;
@@ -129,7 +166,7 @@
 
     .transect-quickbar {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
       align-items: center;
       gap: 4px;
       padding: 0 4px;
@@ -216,6 +253,66 @@
         padding-left: 8px;
         padding-right: 8px;
       }
+    }
+
+
+    .team-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: grid;
+      place-items: center;
+      padding: 14px;
+      background: rgba(28, 25, 23, .34);
+      backdrop-filter: blur(2px);
+    }
+
+    .team-modal[hidden] {
+      display: none;
+    }
+
+    .team-modal-card {
+      width: min(100%, 340px);
+      display: grid;
+      gap: 7px;
+      border-radius: 18px;
+      background: var(--bg);
+      border: 1px solid rgba(0,0,0,.08);
+      padding: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.22);
+    }
+
+    .team-modal-title {
+      font-size: 14px;
+      font-weight: 900;
+      color: var(--stone-900);
+      padding: 2px 2px 4px;
+    }
+
+    .team-join-input,
+    .team-join-btn {
+      border: 0;
+      border-radius: 12px;
+      background: rgba(255,255,255,.9);
+      color: var(--stone-900);
+      padding: 10px 10px;
+      font-size: 13px;
+      line-height: 1;
+      font-weight: 900;
+      box-shadow: 0 1px 5px rgba(0,0,0,.08);
+      outline: none;
+      min-width: 0;
+    }
+
+    .team-modal-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .team-join-btn.muted {
+      color: var(--stone-600);
+      background: rgba(255,255,255,.68);
     }
 
     .confirm {
@@ -973,6 +1070,10 @@
             autocomplete="off"
           />
         </div>
+        <div class="team-pill" id="teamPill" hidden>
+          <span id="teamNameDisplay">Team</span>
+          <button id="leaveTeam" type="button" aria-label="Leave team">×</button>
+        </div>
         <div class="controls">
           <button class="topbtn" id="removePage">−</button>
           <button class="topbtn" id="addPage">+</button>
@@ -990,9 +1091,20 @@
         </select>
         <button class="transect-mini-action" id="addTransect" type="button" title="Add current transect">+</button>
         <button class="transect-mini-action danger" id="removeTransect" type="button" title="Remove selected transect">−</button>
-        <button class="transect-action" id="loadTransectFile" type="button">Import</button>
-        <button class="transect-action" id="saveTransectFile" type="button">Export</button>
-        <input id="loadTransectFileInput" type="file" accept="application/json,.json" hidden />
+        <button class="transect-action" id="syncTeam" type="button">Sync</button>
+      </div>
+
+      <div class="team-modal" id="teamJoinPanel" hidden>
+        <div class="team-modal-card" role="dialog" aria-modal="true" aria-labelledby="teamModalTitle">
+          <div class="team-modal-title" id="teamModalTitle">Create / Join Team</div>
+          <input id="teamNameInput" class="team-join-input" placeholder="Team name" autocomplete="off" />
+          <input id="teamCodeInput" class="team-join-input" placeholder="Team code" autocomplete="off" />
+          <input id="memberNameInput" class="team-join-input" placeholder="Your name" autocomplete="off" />
+          <div class="team-modal-actions">
+            <button id="joinSyncTeam" class="team-join-btn" type="button">Continue</button>
+            <button id="cancelJoinTeam" class="team-join-btn muted" type="button">Cancel</button>
+          </div>
+        </div>
       </div>
 
 
@@ -1025,6 +1137,7 @@
     </div>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     const HUE_NUMBERS = [10, 7.5, 5, 2.5];
     const HUE_FAMILIES = ["R", "YR", "Y", "RP", "GLEY"];
@@ -1099,7 +1212,6 @@
     const LOCAL_SAVE_KEY = "munsell-stp-local-working-save-v1";
     let pendingImportFile = null;
     let pendingImportPayload = null;
-    let pendingStpMerge = null;
     let artifactRevealNonce = Date.now();
     let showArtifactLabels = true;
 
@@ -1740,7 +1852,9 @@
         renderDepth,
         pages: clone(pages),
         transects: transectStore,
-        dirtyTransect
+        dirtyTransect,
+        activeTeam,
+        deletedTransects
       };
     }
 
@@ -1761,6 +1875,8 @@
         if (!saved || saved.app !== "munsell-stp-displayer") return false;
 
         transectStore = saved.transects && typeof saved.transects === "object" ? saved.transects : {};
+        deletedTransects = saved.deletedTransects && typeof saved.deletedTransects === "object" ? saved.deletedTransects : {};
+        activeTeam = saved.activeTeam && typeof saved.activeTeam === "object" ? saved.activeTeam : null;
         activeTransectName = String(saved.activeTransectName || "");
         contextLabel = String(saved.contextLabel || activeTransectName || "T-01");
         renderDepth = Math.max(1, Number(saved.renderDepth) || DEFAULT_RENDER_DEPTH_CM);
@@ -1776,10 +1892,211 @@
         }
 
         dirtyTransect = Boolean(saved.dirtyTransect);
+        activeTeam = saved.activeTeam || activeTeam || null;
+        updateTeamDisplay();
         return true;
       } catch {
         return false;
       }
+    }
+
+
+
+    async function teamKeyFor(code) {
+      const { data, error } = await supabaseClient.rpc("stp_v2_team_key", {
+        p_team_code: code
+      });
+      if (error) throw error;
+      return data;
+    }
+
+    function updateTeamDisplay() {
+      const pill = $("teamPill");
+      const label = $("teamNameDisplay");
+      if (!pill || !label) return;
+
+      if (activeTeam?.name) {
+        label.textContent = activeTeam.name;
+        pill.hidden = false;
+      } else {
+        label.textContent = "";
+        pill.hidden = true;
+      }
+    }
+
+    function clearActiveTeam() {
+      activeTeam = null;
+      saveLocalWorkingState();
+      updateTeamDisplay();
+      hideTeamJoinPanel();
+      showStatus("Left team.");
+    }
+
+    function showTeamJoinPanel() {
+      const panel = $("teamJoinPanel");
+      if (!panel) return;
+      $("teamNameInput").value = activeTeam?.name || $("teamNameInput").value || "";
+      $("teamCodeInput").value = activeTeam?.code || $("teamCodeInput").value || "";
+      $("memberNameInput").value = activeTeam?.member || $("memberNameInput").value || "";
+      panel.hidden = false;
+      $("teamNameInput").focus();
+    }
+
+    function hideTeamJoinPanel() {
+      const panel = $("teamJoinPanel");
+      if (!panel) return;
+      panel.hidden = true;
+    }
+
+    function ensureTeamSession() {
+      if (activeTeam?.name && activeTeam?.code && activeTeam?.member) return true;
+      showTeamJoinPanel();
+      return false;
+    }
+
+    async function joinTeamFromPanel() {
+      const name = String($("teamNameInput").value || "").trim();
+      const code = String($("teamCodeInput").value || "").trim();
+      const member = String($("memberNameInput").value || "").trim();
+
+      if (!name || !code || !member) {
+        showStatus("Fill team fields.");
+        return;
+      }
+
+      try {
+        const { data, error } = await supabaseClient.rpc("stp_v2_create_or_join_team", {
+          p_team_name: name,
+          p_team_code: code
+        });
+
+        if (error || !data?.ok) {
+          showStatus("Team name/code mismatch.");
+          return;
+        }
+
+        activeTeam = {
+          name: data.team_name || name,
+          code,
+          member
+        };
+
+        saveLocalWorkingState();
+        updateTeamDisplay();
+        hideTeamJoinPanel();
+        showStatus(data.created ? "Created team." : "Joined team.");
+      } catch (error) {
+        console.error(error);
+        showStatus("Team failed.");
+      }
+    }
+
+    function transectPayload(name, snapshot) {
+      return {
+        name,
+        pageIndex: Number(snapshot?.pageIndex) || 0,
+        renderDepth: Number(snapshot?.renderDepth) || DEFAULT_RENDER_DEPTH_CM,
+        pages: Array.isArray(snapshot?.pages) ? snapshot.pages : []
+      };
+    }
+
+    function deletedTransectSet() {
+      try {
+        const raw = localStorage.getItem("munsell-stp-deleted-transects-v2");
+        const parsed = raw ? JSON.parse(raw) : [];
+        return new Set(Array.isArray(parsed) ? parsed : []);
+      } catch {
+        return new Set();
+      }
+    }
+
+    function saveDeletedTransectSet(set) {
+      try {
+        localStorage.setItem("munsell-stp-deleted-transects-v2", JSON.stringify([...set]));
+      } catch {}
+    }
+
+    async function pushLocalToTeam(teamKey) {
+      for (const name of Object.keys(transectStore)) {
+        const { error } = await supabaseClient.rpc("stp_v2_upsert_transect", {
+          p_team_key: teamKey,
+          p_author_name: activeTeam.member,
+          p_transect_name: name,
+          p_data: transectPayload(name, transectStore[name])
+        });
+
+        if (error) throw error;
+      }
+
+      for (const name of deletedTransectSet()) {
+        const { error } = await supabaseClient.rpc("stp_v2_delete_transect", {
+          p_team_key: teamKey,
+          p_author_name: activeTeam.member,
+          p_transect_name: name
+        });
+
+        if (error) throw error;
+      }
+    }
+
+    async function pullTeamRows(teamKey) {
+      const { data, error } = await supabaseClient.rpc("stp_v2_pull_transects", {
+        p_team_key: teamKey
+      });
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function syncTeamConfirmed() {
+      if (!activeTeam?.name || !activeTeam?.code || !activeTeam?.member) {
+        showTeamJoinPanel();
+        return;
+      }
+
+      if (dirtyTransect) {
+        addCurrentTransect(true);
+        pendingAction = null;
+      }
+
+      try {
+        const teamKey = await teamKeyFor(activeTeam.code);
+        await pushLocalToTeam(teamKey);
+
+        const rows = await pullTeamRows(teamKey);
+        const imported = {};
+        let removed = 0;
+
+        rows.forEach((row) => {
+          const name = row.transect_name;
+          if (row.deleted) {
+            if (transectStore[name]) {
+              delete transectStore[name];
+              removed += 1;
+            }
+            return;
+          }
+
+          if (!row.data || !Array.isArray(row.data.pages)) return;
+          imported[name] = transectPayload(name, row.data);
+        });
+
+        if (removed) {
+          saveLocalWorkingState();
+          refreshTransectDropdown();
+        }
+
+        applyImportedPayload({ active: activeTransectName, transects: imported }, "merge");
+
+        if (!pendingAction) showStatus(removed ? `Synced. Removed ${removed}.` : "Synced.");
+      } catch (error) {
+        console.error(error);
+        showStatus("Sync failed.");
+      }
+    }
+
+    function syncTeam() {
+      if (!ensureTeamSession()) return;
+      setPending("confirm-sync-team", `Sync with ${activeTeam.name}?`);
     }
 
     function currentTransectName() {
@@ -1855,6 +2172,9 @@
       }
 
       transectStore[name] = snapshotTransect();
+      const deletedSet = deletedTransectSet();
+      deletedSet.delete(name);
+      saveDeletedTransectSet(deletedSet);
       activeTransectName = name;
       dirtyTransect = false;
       refreshTransectDropdown();
@@ -1879,6 +2199,9 @@
       }
 
       delete transectStore[selected];
+      const deletedSet = deletedTransectSet();
+      deletedSet.add(selected);
+      saveDeletedTransectSet(deletedSet);
 
       const remaining = Object.keys(transectStore).sort(naturalTransectSort);
       activeTransectName = "";
@@ -1960,112 +2283,6 @@
     }
 
 
-
-    function stpKey(page) {
-      return String(page?.id ?? "").trim();
-    }
-
-    function analyzeStpMerge(imported) {
-      const result = {
-        newTransects: {},
-        duplicateTransectsWithNewStps: {},
-        skippedTransects: 0,
-        addedTransectCount: 0,
-        candidateStpCount: 0,
-        duplicateStpCount: 0
-      };
-
-      Object.entries(imported).forEach(([name, snapshot]) => {
-        if (!transectStore[name]) {
-          result.newTransects[name] = snapshot;
-          result.addedTransectCount += 1;
-          return;
-        }
-
-        const localPages = Array.isArray(transectStore[name].pages) ? transectStore[name].pages : [];
-        const importPages = Array.isArray(snapshot.pages) ? snapshot.pages : [];
-        const localIds = new Set(localPages.map(stpKey).filter(Boolean));
-
-        const newPages = [];
-        importPages.forEach((p) => {
-          const key = stpKey(p);
-          if (key && localIds.has(key)) {
-            result.duplicateStpCount += 1;
-            return;
-          }
-          newPages.push(p);
-        });
-
-        if (newPages.length) {
-          result.duplicateTransectsWithNewStps[name] = {
-            snapshot,
-            pages: newPages
-          };
-          result.candidateStpCount += newPages.length;
-        } else {
-          result.skippedTransects += 1;
-        }
-      });
-
-      return result;
-    }
-
-    function applyPendingStpMerge(addStps) {
-      if (!pendingStpMerge) return;
-
-      let addedStps = 0;
-      let skippedDuplicateStps = pendingStpMerge.duplicateStpCount || 0;
-
-      Object.entries(pendingStpMerge.newTransects || {}).forEach(([name, snapshot]) => {
-        transectStore[name] = snapshot;
-      });
-
-      if (addStps) {
-        Object.entries(pendingStpMerge.duplicateTransectsWithNewStps || {}).forEach(([name, merge]) => {
-          const local = transectStore[name];
-          if (!local || !Array.isArray(local.pages)) return;
-
-          const existingIds = new Set(local.pages.map(stpKey).filter(Boolean));
-          const toAdd = merge.pages.filter((p) => {
-            const key = stpKey(p);
-            return !key || !existingIds.has(key);
-          });
-
-          local.pages = [...local.pages, ...toAdd].sort((a, b) => {
-            const ax = Number(a.id);
-            const bx = Number(b.id);
-            if (Number.isFinite(ax) && Number.isFinite(bx)) return ax - bx;
-            return stpKey(a).localeCompare(stpKey(b), undefined, { numeric: true });
-          });
-
-          addedStps += toAdd.length;
-        });
-      }
-
-      const names = Object.keys(transectStore).sort(naturalTransectSort);
-      const active = activeTransectName && transectStore[activeTransectName]
-        ? activeTransectName
-        : names[0];
-
-      pendingStpMerge = null;
-
-      if (active && transectStore[active]) {
-        applyTransectSnapshot(active, transectStore[active]);
-      } else {
-        refreshTransectDropdown();
-        render();
-      }
-
-      saveLocalWorkingState();
-
-      const addedTransects = Object.keys(transectStore).length ? "" : "";
-      if (addStps) {
-        showStatus(`Merged STPs ${addedStps}. Skipped ${skippedDuplicateStps}.`);
-      } else {
-        showStatus("Skipped duplicate transect STPs.");
-      }
-    }
-
     function applyImportedPayload(normalized, mode) {
       if (!normalized || !normalized.transects) {
         showStatus("Could not import this file.");
@@ -2073,6 +2290,8 @@
       }
 
       const imported = normalized.transects;
+      let added = 0;
+      let skipped = 0;
 
       if (mode === "replace") {
         transectStore = imported;
@@ -2092,22 +2311,14 @@
         return;
       }
 
-      const analysis = analyzeStpMerge(imported);
-
-      Object.entries(analysis.newTransects).forEach(([name, snapshot]) => {
+      Object.entries(imported).forEach(([name, snapshot]) => {
+        if (transectStore[name]) {
+          skipped += 1;
+          return;
+        }
         transectStore[name] = snapshot;
+        added += 1;
       });
-
-      const duplicateNamesWithNewStps = Object.keys(analysis.duplicateTransectsWithNewStps);
-
-      if (duplicateNamesWithNewStps.length) {
-        pendingStpMerge = analysis;
-        setPending(
-          "merge-duplicate-stps",
-          `${duplicateNamesWithNewStps.join(", ")} already exists. Add new STPs?`
-        );
-        return;
-      }
 
       const names = Object.keys(transectStore).sort(naturalTransectSort);
       const active = activeTransectName && transectStore[activeTransectName]
@@ -2122,12 +2333,8 @@
       }
 
       saveLocalWorkingState();
-
-      if (analysis.addedTransectCount > 0) {
-        showStatus(`Merged ${analysis.addedTransectCount}. Skipped ${analysis.skippedTransects}.`);
-      } else {
-        showStatus(`No new transects. Skipped ${analysis.skippedTransects}.`);
-      }
+      if (added > 0) showStatus(`Merged ${added}. Skipped ${skipped}.`);
+      else showStatus(`No new transects. Skipped ${skipped}.`);
     }
 
     function loadTransectFile(file) {
@@ -2386,10 +2593,6 @@ function renderConfirm() {
         pendingImportPayload = null;
         applyImportedPayload(payload, "merge");
       }
-      else if (pendingAction.type === "merge-duplicate-stps") {
-        pendingAction = null;
-        applyPendingStpMerge(true);
-      }
       else {
         pendingAction = null;
         render();
@@ -2412,18 +2615,8 @@ function renderConfirm() {
         return;
       }
 
-      if (pendingAction?.type === "merge-duplicate-stps") {
-        pendingAction = null;
-        applyPendingStpMerge(false);
-        return;
-      }
-
       if (pendingAction?.type === "confirm-download-export") {
         pendingDownloadExport = null;
-      }
-
-      if (pendingAction?.type === "merge-duplicate-stps") {
-        pendingStpMerge = null;
       }
 
       pendingAction = null;
@@ -2440,19 +2633,22 @@ function renderConfirm() {
       selectTransect(event.target.value);
     });
 
-    $("loadTransectFile").addEventListener("click", () => {
-      $("loadTransectFileInput").click();
-    });
+    $("syncTeam").addEventListener("click", syncTeam);
 
-    $("loadTransectFileInput").addEventListener("change", (event) => {
-      const file = event.target.files && event.target.files[0];
-      loadTransectFile(file);
-      event.target.value = "";
-    });
+    $("leaveTeam").addEventListener("click", clearActiveTeam);
 
-    $("saveTransectFile").addEventListener("click", saveTransectFile);
+    $("joinSyncTeam").addEventListener("click", joinTeamFromPanel);
+
+    $("cancelJoinTeam").addEventListener("click", hideTeamJoinPanel);
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !$("teamJoinPanel").hidden) {
+        hideTeamJoinPanel();
+      }
+    });
 
     restoreLocalWorkingState();
+    updateTeamDisplay();
     render();
   </script>
 </body>
