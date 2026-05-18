@@ -1212,6 +1212,11 @@
     const LOCAL_SAVE_KEY = "munsell-stp-local-working-save-v1";
     let pendingImportFile = null;
     let pendingImportPayload = null;
+    let activeTeam = null;
+    let deletedTransects = {};
+    const SUPABASE_URL = "https://xkqkulfiwqhmjxcitpst.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_nxd1vedbE3lpfEOFjWHShQ_lnXCf7xp";
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     let artifactRevealNonce = Date.now();
     let showArtifactLabels = true;
 
@@ -1970,7 +1975,13 @@
           p_team_code: code
         });
 
-        if (error || !data?.ok) {
+        if (error) {
+          console.error("Create/join team RPC error:", error);
+          showStatus(error.message || "Team sync error.");
+          return;
+        }
+
+        if (!data?.ok) {
           showStatus("Team name/code mismatch.");
           return;
         }
@@ -1986,8 +1997,8 @@
         hideTeamJoinPanel();
         showStatus(data.created ? "Created team." : "Joined team.");
       } catch (error) {
-        console.error(error);
-        showStatus("Team failed.");
+        console.error("Create/join team failed:", error);
+        showStatus(error?.message || "Team failed.");
       }
     }
 
