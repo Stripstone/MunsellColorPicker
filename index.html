@@ -2758,6 +2758,10 @@
         pendingImportPayload = null;
         applyImportedPayload(payload, "merge");
       }
+      else if (pendingAction.type === "confirm-sync-team") {
+        pendingAction = null;
+        syncTeamConfirmed();
+      }
       else {
         pendingAction = null;
         render();
