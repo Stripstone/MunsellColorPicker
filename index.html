@@ -315,6 +315,70 @@
       background: rgba(255,255,255,.68);
     }
 
+
+    .team-under-render {
+      position: absolute;
+      left: 4px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      max-width: min(72%, 430px);
+      border-radius: 999px;
+      background: rgba(255,255,255,.68);
+      color: var(--stone-600);
+      padding: 5px 8px 5px 10px;
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 900;
+      box-shadow: 0 1px 5px rgba(0,0,0,.06);
+    }
+
+    .team-under-render[hidden] {
+      display: none;
+    }
+
+    .team-under-render span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .team-under-render button {
+      flex: 0 0 auto;
+      width: 18px;
+      height: 18px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: rgba(255,255,255,.72);
+      color: var(--stone-500);
+      font-size: 13px;
+      font-weight: 900;
+      line-height: 1;
+      padding: 0;
+    }
+
+    @media (min-width: 760px) {
+      .team-under-render {
+        max-width: min(78%, 560px);
+        font-size: 12px;
+        padding: 6px 10px 6px 12px;
+      }
+    }
+
+    @media (max-width: 374px) {
+      .team-under-render {
+        max-width: 68%;
+        font-size: 10px;
+        padding-left: 8px;
+      }
+    }
+
+
     .confirm {
       display: none;
       align-items: center;
@@ -541,9 +605,11 @@
     }
 
     .render-row {
+      position: relative;
       display: flex;
       justify-content: flex-end;
-      padding-right: 4px;
+      padding: 0 4px;
+      min-height: 24px;
     }
 
     .render-label {
@@ -1070,10 +1136,6 @@
             autocomplete="off"
           />
         </div>
-        <div class="team-pill" id="teamPill" hidden>
-          <span id="teamNameDisplay">Team</span>
-          <button id="leaveTeam" type="button" aria-label="Leave team">×</button>
-        </div>
         <div class="controls">
           <button class="topbtn" id="removePage">−</button>
           <button class="topbtn" id="addPage">+</button>
@@ -1130,6 +1192,10 @@
       </section>
 
       <div class="render-row">
+        <div class="team-under-render" id="teamPill" hidden>
+          <span id="teamNameDisplay"></span>
+          <button id="leaveTeam" type="button" aria-label="Leave team">×</button>
+        </div>
         <label class="render-label">render <span id="renderDepthMount"></span></label>
       </div>
 
