@@ -404,6 +404,34 @@
     .confirm .yes { background: var(--amber-200); }
     .confirm .no { background: white; }
 
+    .sync-diag {
+      border-radius: 14px;
+      background: rgba(255,255,255,.78);
+      border: 1px solid rgba(0,0,0,.08);
+      padding: 8px 10px;
+      color: var(--stone-600);
+      font-size: 11px;
+      font-weight: 800;
+      box-shadow: 0 1px 5px rgba(0,0,0,.06);
+    }
+
+    .sync-diag[hidden] {
+      display: none;
+    }
+
+    .sync-diag-title {
+      color: var(--stone-900);
+      font-weight: 900;
+      margin-bottom: 4px;
+    }
+
+    .sync-diag pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font: inherit;
+      line-height: 1.35;
+    }
+
     .profile {
       overflow: hidden;
       border-radius: 22px;
@@ -1176,6 +1204,11 @@
           <button class="yes" id="confirmYes">yes</button>
           <button class="no" id="confirmNo">no</button>
         </div>
+      </div>
+
+      <div class="sync-diag" id="syncDiagBox" hidden>
+        <div class="sync-diag-title">Sync diagnostics</div>
+        <pre id="syncDiagText"></pre>
       </div>
 
       <section class="profile">
@@ -1973,11 +2006,52 @@
 
 
 
+
+    let syncDiagLines = [];
+
+    function syncDiag(message, data = null) {
+      const stamp = new Date().toLocaleTimeString();
+      let line = `${stamp} ${message}`;
+      if (data !== null && data !== undefined) {
+        try {
+          line += ` ${JSON.stringify(data)}`;
+        } catch {
+          line += ` ${String(data)}`;
+        }
+      }
+      syncDiagLines.push(line);
+      syncDiagLines = syncDiagLines.slice(-10);
+
+      const box = $("syncDiagBox");
+      const text = $("syncDiagText");
+      if (box && text) {
+        box.hidden = false;
+        text.textContent = syncDiagLines.join("\n");
+      }
+
+      console.log("[STP sync]", message, data ?? "");
+    }
+
+    function clearSyncDiag() {
+      syncDiagLines = [];
+      const box = $("syncDiagBox");
+      const text = $("syncDiagText");
+      if (box && text) {
+        box.hidden = true;
+        text.textContent = "";
+      }
+    }
+
     async function teamKeyFor(code) {
+      syncDiag("team key requested");
       const { data, error } = await supabaseClient.rpc("stp_v2_team_key", {
         p_team_code: code
       });
-      if (error) throw error;
+      if (error) {
+        console.error("stp_v2_team_key failed", error);
+        throw new Error(error.message || "Team key failed");
+      }
+      syncDiag("team key received", { hasKey: Boolean(data) });
       return data;
     }
 
@@ -2036,21 +2110,25 @@
       }
 
       try {
+        syncDiag("create/join requested", { teamName: name, member });
         const { data, error } = await supabaseClient.rpc("stp_v2_create_or_join_team", {
           p_team_name: name,
           p_team_code: code
         });
 
         if (error) {
+          syncDiag("create/join RPC error", { message: error.message, details: error.details, hint: error.hint, code: error.code });
           console.error("Create/join team RPC error:", error);
           showStatus(error.message || "Team sync error.");
           return;
         }
 
         if (!data?.ok) {
+          syncDiag("create/join rejected", data);
           showStatus("Team name/code mismatch.");
           return;
         }
+        syncDiag(data.created ? "team created" : "team joined", { teamName: data.team_name || name });
 
         activeTeam = {
           name: data.team_name || name,
@@ -2093,16 +2171,34 @@
       } catch {}
     }
 
+
     async function pushLocalToTeam(teamKey) {
-      for (const name of Object.keys(transectStore)) {
+      const names = Object.keys(transectStore);
+      let uploaded = 0;
+      let tombstones = 0;
+      syncDiag("push started", { transects: names.length, tombstones: deletedTransectSet().size });
+
+      if (!names.length && !deletedTransectSet().size) {
+        return { uploaded, tombstones };
+      }
+
+      for (const name of names) {
+        const payload = transectPayload(name, transectStore[name]);
         const { error } = await supabaseClient.rpc("stp_v2_upsert_transect", {
           p_team_key: teamKey,
           p_author_name: activeTeam.member,
           p_transect_name: name,
-          p_data: transectPayload(name, transectStore[name])
+          p_data: payload
         });
 
-        if (error) throw error;
+        if (error) {
+          syncDiag("upload RPC error", { name, message: error.message, details: error.details, hint: error.hint, code: error.code });
+          console.error("stp_v2_upsert_transect failed", { name, payload, error });
+          throw new Error(error.message || "Upload failed");
+        }
+
+        uploaded += 1;
+        syncDiag("uploaded transect", { name });
       }
 
       for (const name of deletedTransectSet()) {
@@ -2112,32 +2208,55 @@
           p_transect_name: name
         });
 
-        if (error) throw error;
+        if (error) {
+          console.error("stp_v2_delete_transect failed", { name, error });
+          throw new Error(error.message || "Delete sync failed");
+        }
+
+        tombstones += 1;
       }
+
+      syncDiag("push complete", { uploaded, tombstones });
+      return { uploaded, tombstones };
     }
 
     async function pullTeamRows(teamKey) {
+      syncDiag("pull requested");
       const { data, error } = await supabaseClient.rpc("stp_v2_pull_transects", {
         p_team_key: teamKey
       });
-      if (error) throw error;
+      if (error) {
+        syncDiag("pull RPC error", { message: error.message, details: error.details, hint: error.hint, code: error.code });
+        throw error;
+      }
+      syncDiag("pull complete", { rows: (data || []).length });
       return data || [];
     }
 
+
     async function syncTeamConfirmed() {
+      clearSyncDiag();
+      syncDiag("sync started");
       if (!activeTeam?.name || !activeTeam?.code || !activeTeam?.member) {
         showTeamJoinPanel();
         return;
       }
 
-      if (dirtyTransect) {
-        addCurrentTransect(true);
-        pendingAction = null;
-      }
+      // Sync should share the currently open transect, even if the user forgot +.
+      addCurrentTransect(true);
+      pendingAction = null;
 
       try {
+        const localCount = Object.keys(transectStore).length;
+        if (!localCount && !deletedTransectSet().size) {
+          showStatus("No transects to sync.");
+          return;
+        }
+
+        showStatus(`Uploading ${localCount}.`);
+
         const teamKey = await teamKeyFor(activeTeam.code);
-        await pushLocalToTeam(teamKey);
+        const pushed = await pushLocalToTeam(teamKey);
 
         const rows = await pullTeamRows(teamKey);
         const imported = {};
@@ -2164,10 +2283,12 @@
 
         applyImportedPayload({ active: activeTransectName, transects: imported }, "merge");
 
-        if (!pendingAction) showStatus(removed ? `Synced. Removed ${removed}.` : "Synced.");
+        if (!pendingAction) {
+          showStatus(`Synced. Uploaded ${pushed.uploaded}. Pulled ${rows.length}.`);
+        }
       } catch (error) {
-        console.error(error);
-        showStatus("Sync failed.");
+        console.error("Sync failed:", error);
+        showStatus(error?.message || "Sync failed.");
       }
     }
 
