@@ -424,6 +424,111 @@
     .toast-bar .yes { background: var(--amber-200); color: var(--amber-900); }
     .toast-bar .no  { background: white; color: var(--stone-900); }
 
+    /* ── Conflict resolution panel ── */
+    .conflict-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1100;
+      display: grid;
+      place-items: center;
+      padding: 14px;
+      background: rgba(28,25,23,.38);
+      backdrop-filter: blur(2px);
+    }
+    .conflict-modal[hidden] { display: none; }
+
+    .conflict-card {
+      width: min(100%, 360px);
+      display: grid;
+      gap: 8px;
+      border-radius: 18px;
+      background: var(--bg);
+      border: 1px solid rgba(0,0,0,.08);
+      padding: 14px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.22);
+    }
+
+    .conflict-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .conflict-title {
+      font-size: 13px;
+      font-weight: 900;
+      color: var(--stone-900);
+    }
+
+    .conflict-progress {
+      font-size: 10px;
+      font-weight: 900;
+      color: var(--stone-400);
+      white-space: nowrap;
+    }
+
+    .conflict-body {
+      font-size: 11px;
+      font-weight: 900;
+      color: var(--stone-500);
+      line-height: 1.45;
+    }
+
+    .conflict-diff {
+      background: var(--stone-100);
+      border-radius: 10px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .conflict-diff-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    .conflict-diff-field { color: var(--stone-400); }
+
+    .conflict-diff-vals {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      color: var(--stone-900);
+    }
+
+    .conflict-diff-sep { color: var(--stone-300); }
+
+    .conflict-actions {
+      display: grid;
+      gap: 5px;
+    }
+    .conflict-actions.two  { grid-template-columns: 1fr 1fr; }
+    .conflict-actions.four { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+    .conflict-btn {
+      border: 0;
+      border-radius: 11px;
+      padding: 9px 5px;
+      font-size: 11px;
+      font-weight: 900;
+      cursor: pointer;
+      background: rgba(255,255,255,.9);
+      color: var(--stone-600);
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      text-align: center;
+    }
+
+    .conflict-btn.primary {
+      background: var(--amber-100);
+      color: var(--amber-900);
+    }
+
     .profile {
       overflow: hidden;
       border-radius: 22px;
@@ -1223,6 +1328,19 @@
     <div class="toast-actions" id="toastActions">
       <button class="yes" id="confirmYes">yes</button>
       <button class="no" id="confirmNo">no</button>
+    </div>
+  </div>
+
+  <!-- Conflict resolution modal — shown per-conflict during sync -->
+  <div id="conflictModal" class="conflict-modal" hidden>
+    <div class="conflict-card" role="dialog" aria-modal="true" aria-labelledby="conflictModalTitle">
+      <div class="conflict-header">
+        <div class="conflict-title" id="conflictModalTitle"></div>
+        <div class="conflict-progress" id="conflictProgress"></div>
+      </div>
+      <div class="conflict-body" id="conflictBody"></div>
+      <div class="conflict-diff" id="conflictDiff" hidden></div>
+      <div class="conflict-actions" id="conflictActions"></div>
     </div>
   </div>
 
@@ -2198,6 +2316,230 @@
     }
 
 
+    // ── Sync diff engine ────────────────────────────────────────────
+
+    function pagesById(pages) {
+      const map = {};
+      for (const p of (pages || [])) map[p.id] = p;
+      return map;
+    }
+
+    function pageFieldsEqual(a, b) {
+      return JSON.stringify(a) === JSON.stringify(b);
+    }
+
+    function mergePage(local, remote) {
+      const layers = {};
+      for (const layer of LAYERS) {
+        const l = local.layers?.[layer]  || {};
+        const r = remote.layers?.[layer] || {};
+        // Prefer whichever side is active; within active fields prefer remote
+        layers[layer] = {
+          hueNumber: r.active ? r.hueNumber : (l.active ? l.hueNumber : (r.hueNumber ?? l.hueNumber)),
+          hueFamily: r.active ? r.hueFamily : (l.active ? l.hueFamily : (r.hueFamily ?? l.hueFamily)),
+          value:     r.active ? r.value     : (l.active ? l.value     : (r.value     ?? l.value)),
+          chroma:    r.active ? r.chroma    : (l.active ? l.chroma    : (r.chroma    ?? l.chroma)),
+          active:    r.active || l.active || false,
+          soilType:  (r.soilType && r.soilType !== "Type") ? r.soilType : (l.soilType || "Type")
+        };
+      }
+      const extents = {};
+      for (const layer of LAYERS) {
+        extents[layer] = remote.extents?.[layer] ?? local.extents?.[layer] ?? 0;
+      }
+      const artifacts = {};
+      for (const layer of LAYERS) {
+        const rA = remote.artifacts?.[layer] || "";
+        const lA = local.artifacts?.[layer]  || "";
+        artifacts[layer] = rA || lA;
+      }
+      return { ...local, layers, extents, artifacts };
+    }
+
+    function describePageDiff(local, remote) {
+      const diffs = [];
+      for (const layer of LAYERS) {
+        const l = local.layers?.[layer];
+        const r = remote.layers?.[layer];
+        if (!l || !r) continue;
+        const lStr = l.active ? `${l.hueNumber}${l.hueFamily} ${l.value}/${l.chroma}` : "off";
+        const rStr = r.active ? `${r.hueNumber}${r.hueFamily} ${r.value}/${r.chroma}` : "off";
+        if (lStr !== rStr) diffs.push({ field: `Layer ${layer}`, mine: lStr, theirs: rStr });
+        const lA = local.artifacts?.[layer] || "—";
+        const rA = remote.artifacts?.[layer] || "—";
+        if (lA !== rA) diffs.push({ field: `${layer} artifact`, mine: lA, theirs: rA });
+      }
+      if (!pageFieldsEqual(local.extents, remote.extents)) {
+        const fmt = (e) => LAYERS.filter(l => e?.[l] != null).map(l => `${l}:${e[l]}cm`).join(" ");
+        const lE = fmt(local.extents);
+        const rE = fmt(remote.extents);
+        if (lE !== rE) diffs.push({ field: "Extents", mine: lE, theirs: rE });
+      }
+      return diffs;
+    }
+
+    function computeSyncDiff(localStore, localTombstoneSet, remoteRows) {
+      const autoMerge = [];
+      const conflicts = [];
+
+      for (const row of remoteRows) {
+        const name = row.transect_name;
+        const localHas       = Boolean(localStore[name]);
+        const localTombstoned = localTombstoneSet.has(name);
+
+        if (row.deleted) {
+          if (!localHas || localTombstoned) {
+            // Already gone or we deleted it ourselves — no-op
+          } else {
+            // Teammate deleted something we still have
+            conflicts.push({ type: "remote-delete", transectName: name });
+          }
+          continue;
+        }
+
+        if (!row.data || !Array.isArray(row.data.pages)) continue;
+
+        if (!localHas) {
+          // Brand-new transect from remote — safe add
+          autoMerge.push({ type: "add-transect", transectName: name, data: row.data });
+        } else {
+          const localById  = pagesById(localStore[name].pages);
+          const remoteById = pagesById(row.data.pages);
+
+          for (const [idStr, remotePage] of Object.entries(remoteById)) {
+            const id = Number(idStr);
+            if (!localById[id]) {
+              // New STP from remote — safe add
+              autoMerge.push({ type: "add-page", transectName: name, page: remotePage });
+            } else if (!pageFieldsEqual(localById[id], remotePage)) {
+              // Same STP, different data — needs user decision
+              conflicts.push({
+                type: "page-conflict",
+                transectName: name,
+                pageId: id,
+                local: localById[id],
+                remote: remotePage
+              });
+            }
+            // Exact duplicate — no-op
+          }
+        }
+      }
+
+      return { autoMerge, conflicts };
+    }
+
+    function applySyncAutoMerges(autoMerge) {
+      for (const item of autoMerge) {
+        if (item.type === "add-transect") {
+          transectStore[item.transectName] = transectPayload(item.transectName, item.data);
+        } else if (item.type === "add-page") {
+          const snap = transectStore[item.transectName];
+          if (snap && Array.isArray(snap.pages)) {
+            snap.pages.push(item.page);
+            snap.pages.sort((a, b) => a.id - b.id);
+          }
+        }
+      }
+    }
+
+    // ── Conflict resolution UI ───────────────────────────────────────
+
+    function showConflictModal(conflict, index, total, onResolve) {
+      const modal = $("conflictModal");
+      const title = $("conflictModalTitle");
+      const prog  = $("conflictProgress");
+      const body  = $("conflictBody");
+      const diff  = $("conflictDiff");
+      const acts  = $("conflictActions");
+
+      modal.hidden = false;
+      prog.textContent = `${index + 1} of ${total}`;
+
+      if (conflict.type === "remote-delete") {
+        title.textContent = `${conflict.transectName} · deleted remotely`;
+        body.textContent  = "A teammate deleted this transect. You still have it locally.";
+        diff.hidden = true;
+        acts.className = "conflict-actions two";
+        acts.innerHTML = `
+          <button class="conflict-btn primary" data-choice="keep">Keep mine</button>
+          <button class="conflict-btn" data-choice="theirs">Accept delete</button>
+        `;
+      } else {
+        const diffs = describePageDiff(conflict.local, conflict.remote);
+        title.textContent = `${conflict.transectName} · STP ${conflict.pageId}`;
+        body.textContent  = `STP ${conflict.pageId} differs from the team version.`;
+
+        if (diffs.length) {
+          diff.hidden = false;
+          diff.innerHTML = diffs.map(d => `
+            <div class="conflict-diff-row">
+              <span class="conflict-diff-field">${d.field}</span>
+              <span class="conflict-diff-vals">
+                <span>${d.mine}</span>
+                <span class="conflict-diff-sep">→</span>
+                <span>${d.theirs}</span>
+              </span>
+            </div>
+          `).join("");
+        } else {
+          diff.hidden = true;
+        }
+
+        acts.className = "conflict-actions four";
+        acts.innerHTML = `
+          <button class="conflict-btn primary" data-choice="keep">Keep mine</button>
+          <button class="conflict-btn" data-choice="theirs">Use theirs</button>
+          <button class="conflict-btn" data-choice="merge">Merge</button>
+          <button class="conflict-btn" data-choice="skip">Skip</button>
+        `;
+      }
+
+      acts.onclick = (e) => {
+        const btn = e.target.closest("[data-choice]");
+        if (!btn) return;
+        acts.onclick = null;
+        modal.hidden = true;
+        onResolve(btn.dataset.choice);
+      };
+    }
+
+    function applyConflictResolution(conflict, choice) {
+      if (conflict.type === "remote-delete") {
+        if (choice === "theirs") {
+          delete transectStore[conflict.transectName];
+          const ts = deletedTransectSet();
+          ts.add(conflict.transectName);
+          saveDeletedTransectSet(ts);
+        }
+        // "keep" → local stays, will be re-pushed on next sync
+      } else if (conflict.type === "page-conflict") {
+        const snap = transectStore[conflict.transectName];
+        if (!snap || !Array.isArray(snap.pages)) return;
+        if (choice === "theirs") {
+          snap.pages = snap.pages.map(p => p.id === conflict.pageId ? conflict.remote : p);
+        } else if (choice === "merge") {
+          snap.pages = snap.pages.map(p => p.id === conflict.pageId ? mergePage(p, conflict.remote) : p);
+        }
+        // "keep" or "skip" → local stays unchanged
+      }
+    }
+
+    function runConflictQueue(conflicts, onComplete) {
+      let i = 0;
+      function next() {
+        if (i >= conflicts.length) { onComplete(); return; }
+        const conflict = conflicts[i++];
+        showConflictModal(conflict, i - 1, conflicts.length, (choice) => {
+          applyConflictResolution(conflict, choice);
+          next();
+        });
+      }
+      next();
+    }
+
+    // ── Main sync entry point ────────────────────────────────────────
+
     async function syncTeamConfirmed() {
       clearSyncDiag();
       syncDiag("sync started");
@@ -2206,50 +2548,48 @@
         return;
       }
 
-      // Sync should share the currently open transect, even if the user forgot +.
       addCurrentTransect(true);
       pendingAction = null;
 
       try {
-        const localCount = Object.keys(transectStore).length;
-        if (!localCount && !deletedTransectSet().size) {
+        const localCount      = Object.keys(transectStore).length;
+        const localTombstones = deletedTransectSet();
+
+        if (!localCount && !localTombstones.size) {
           showStatus("No transects to sync.");
           return;
         }
 
-        showStatus(`Uploading ${localCount}.`);
+        showStatus("Syncing…");
 
         const teamKey = await teamKeyFor(activeTeam.name, activeTeam.code);
-        const pushed = await pushLocalToTeam(teamKey);
+        const pushed  = await pushLocalToTeam(teamKey);
+        const rows    = await pullTeamRows(teamKey);
 
-        const rows = await pullTeamRows(teamKey);
-        const imported = {};
-        let removed = 0;
+        const { autoMerge, conflicts } = computeSyncDiff(transectStore, localTombstones, rows);
+        syncDiag("diff computed", { autoMerge: autoMerge.length, conflicts: conflicts.length });
 
-        rows.forEach((row) => {
-          const name = row.transect_name;
-          if (row.deleted) {
-            if (transectStore[name]) {
-              delete transectStore[name];
-              removed += 1;
-            }
-            return;
-          }
+        applySyncAutoMerges(autoMerge);
+        const autoAdded = autoMerge.filter(m => m.type === "add-transect" || m.type === "add-page").length;
 
-          if (!row.data || !Array.isArray(row.data.pages)) return;
-          imported[name] = transectPayload(name, row.data);
-        });
-
-        if (removed) {
+        function finishSync() {
           saveLocalWorkingState();
           refreshTransectDropdown();
+          render();
+          const parts = [];
+          if (pushed.uploaded)  parts.push(`Uploaded ${pushed.uploaded}`);
+          if (autoAdded)        parts.push(`Merged ${autoAdded}`);
+          if (conflicts.length) parts.push(`Resolved ${conflicts.length} conflict${conflicts.length > 1 ? "s" : ""}`);
+          showStatus(parts.length ? parts.join(". ") + "." : "Synced.");
         }
 
-        applyImportedPayload({ active: activeTransectName, transects: imported }, "merge");
-
-        if (!pendingAction) {
-          showStatus(`Synced. Uploaded ${pushed.uploaded}. Pulled ${rows.length}.`);
+        if (conflicts.length) {
+          syncDiag("showing conflict queue", { count: conflicts.length });
+          runConflictQueue(conflicts, finishSync);
+        } else {
+          finishSync();
         }
+
       } catch (error) {
         console.error("Sync failed:", error);
         showStatus(error?.message || "Sync failed.");
