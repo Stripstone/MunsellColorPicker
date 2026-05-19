@@ -2600,7 +2600,21 @@
         applySyncAutoMerges(autoMerge);
         const autoAdded = autoMerge.filter(m => m.type === "add-transect" || m.type === "add-page").length;
 
-        function finishSync() {
+        async function finishSync(hadConflicts) {
+          // Push resolved state back so the next sync sees the settled version
+          if (hadConflicts) {
+            try {
+              syncDiag("pushing resolved state");
+              await pushLocalToTeam(teamKey);
+            } catch (err) {
+              console.error("Post-resolution push failed:", err);
+              showStatus("Resolved locally but upload failed. Sync again.");
+              saveLocalWorkingState();
+              refreshTransectDropdown();
+              render();
+              return;
+            }
+          }
           saveLocalWorkingState();
           refreshTransectDropdown();
           render();
@@ -2613,9 +2627,9 @@
 
         if (conflicts.length) {
           syncDiag("showing conflict queue", { count: conflicts.length });
-          runConflictQueue(conflicts, finishSync);
+          runConflictQueue(conflicts, () => finishSync(true));
         } else {
-          finishSync();
+          finishSync(false);
         }
 
       } catch (error) {
