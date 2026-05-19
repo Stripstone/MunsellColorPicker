@@ -2328,101 +2328,55 @@
       return JSON.stringify(a) === JSON.stringify(b);
     }
 
-    function mergePage(local, remote) {
-      const layers = {};
-      for (const layer of LAYERS) {
-        const l = local.layers?.[layer]  || {};
-        const r = remote.layers?.[layer] || {};
-        // Prefer whichever side is active; within active fields prefer remote
-        layers[layer] = {
-          hueNumber: r.active ? r.hueNumber : (l.active ? l.hueNumber : (r.hueNumber ?? l.hueNumber)),
-          hueFamily: r.active ? r.hueFamily : (l.active ? l.hueFamily : (r.hueFamily ?? l.hueFamily)),
-          value:     r.active ? r.value     : (l.active ? l.value     : (r.value     ?? l.value)),
-          chroma:    r.active ? r.chroma    : (l.active ? l.chroma    : (r.chroma    ?? l.chroma)),
-          active:    r.active || l.active || false,
-          soilType:  (r.soilType && r.soilType !== "Type") ? r.soilType : (l.soilType || "Type")
-        };
-      }
-      const extents = {};
-      for (const layer of LAYERS) {
-        extents[layer] = remote.extents?.[layer] ?? local.extents?.[layer] ?? 0;
-      }
-      const artifacts = {};
-      for (const layer of LAYERS) {
-        const rA = remote.artifacts?.[layer] || "";
-        const lA = local.artifacts?.[layer]  || "";
-        artifacts[layer] = rA || lA;
-      }
-      return { ...local, layers, extents, artifacts };
-    }
-
-    function describePageDiff(local, remote) {
-      const diffs = [];
-      for (const layer of LAYERS) {
-        const l = local.layers?.[layer];
-        const r = remote.layers?.[layer];
-        if (!l || !r) continue;
-        const lStr = l.active ? `${l.hueNumber}${l.hueFamily} ${l.value}/${l.chroma}` : "off";
-        const rStr = r.active ? `${r.hueNumber}${r.hueFamily} ${r.value}/${r.chroma}` : "off";
-        if (lStr !== rStr) diffs.push({ field: `Layer ${layer}`, mine: lStr, theirs: rStr });
-        const lA = local.artifacts?.[layer] || "—";
-        const rA = remote.artifacts?.[layer] || "—";
-        if (lA !== rA) diffs.push({ field: `${layer} artifact`, mine: lA, theirs: rA });
-      }
-      if (!pageFieldsEqual(local.extents, remote.extents)) {
-        const fmt = (e) => LAYERS.filter(l => e?.[l] != null).map(l => `${l}:${e[l]}cm`).join(" ");
-        const lE = fmt(local.extents);
-        const rE = fmt(remote.extents);
-        if (lE !== rE) diffs.push({ field: "Extents", mine: lE, theirs: rE });
-      }
-      return diffs;
-    }
-
     function computeSyncDiff(localStore, localTombstoneSet, remoteRows) {
       const autoMerge = [];
       const conflicts = [];
 
       for (const row of remoteRows) {
-        const name = row.transect_name;
-        const localHas       = Boolean(localStore[name]);
+        const name          = row.transect_name;
+        const localHas      = Boolean(localStore[name]);
         const localTombstoned = localTombstoneSet.has(name);
 
         if (row.deleted) {
-          if (!localHas || localTombstoned) {
-            // Already gone or we deleted it ourselves — no-op
-          } else {
+          if (localHas && !localTombstoned) {
             // Teammate deleted something we still have
             conflicts.push({ type: "remote-delete", transectName: name });
           }
+          // Already gone or we deleted it — no-op
           continue;
         }
 
         if (!row.data || !Array.isArray(row.data.pages)) continue;
 
         if (!localHas) {
-          // Brand-new transect from remote — safe add
+          // Entirely new transect — safe add
           autoMerge.push({ type: "add-transect", transectName: name, data: row.data });
         } else {
           const localById  = pagesById(localStore[name].pages);
           const remoteById = pagesById(row.data.pages);
+          const stpConflicts = [];
+          const newRemotePages = [];
 
           for (const [idStr, remotePage] of Object.entries(remoteById)) {
             const id = Number(idStr);
             if (!localById[id]) {
-              // New STP from remote — safe add
-              autoMerge.push({ type: "add-page", transectName: name, page: remotePage });
+              newRemotePages.push(remotePage);           // new STP — auto-add on merge/use-theirs
             } else if (!pageFieldsEqual(localById[id], remotePage)) {
-              // Same STP, different data — needs user decision
-              conflicts.push({
-                type: "page-conflict",
-                transectName: name,
-                pageId: id,
-                local: localById[id],
-                remote: remotePage
-              });
+              stpConflicts.push({ pageId: id, local: localById[id], remote: remotePage });
             }
-            // Exact duplicate — no-op
           }
+
+          if (stpConflicts.length || newRemotePages.length) {
+            // Surface at transect level
+            conflicts.push({
+              type: "transect-conflict",
+              transectName: name,
+              stpConflicts,
+              newRemotePages,
+              remoteSnapshot: row.data
+            });
+          }
+          // Exact matches or local-only new pages — no action needed
         }
       }
 
@@ -2445,97 +2399,171 @@
 
     // ── Conflict resolution UI ───────────────────────────────────────
 
-    function showConflictModal(conflict, index, total, onResolve) {
+    function renderConflictModal({ title, body, diffRows, buttons }) {
       const modal = $("conflictModal");
-      const title = $("conflictModalTitle");
-      const prog  = $("conflictProgress");
-      const body  = $("conflictBody");
-      const diff  = $("conflictDiff");
-      const acts  = $("conflictActions");
+      const titleEl = $("conflictModalTitle");
+      const bodyEl  = $("conflictBody");
+      const diffEl  = $("conflictDiff");
+      const actsEl  = $("conflictActions");
 
-      modal.hidden = false;
-      prog.textContent = `${index + 1} of ${total}`;
+      modal.hidden   = false;
+      titleEl.textContent = title;
+      bodyEl.textContent  = body;
 
-      if (conflict.type === "remote-delete") {
-        title.textContent = `${conflict.transectName} · deleted remotely`;
-        body.textContent  = "A teammate deleted this transect. You still have it locally.";
-        diff.hidden = true;
-        acts.className = "conflict-actions two";
-        acts.innerHTML = `
-          <button class="conflict-btn primary" data-choice="keep">Keep mine</button>
-          <button class="conflict-btn" data-choice="theirs">Accept delete</button>
-        `;
+      if (diffRows && diffRows.length) {
+        diffEl.hidden = false;
+        diffEl.innerHTML = diffRows.map(d => `
+          <div class="conflict-diff-row">
+            <span class="conflict-diff-field">${d.field}</span>
+            <span class="conflict-diff-vals">
+              <span>${d.mine}</span>
+              <span class="conflict-diff-sep">→</span>
+              <span>${d.theirs}</span>
+            </span>
+          </div>
+        `).join("");
       } else {
-        const diffs = describePageDiff(conflict.local, conflict.remote);
-        title.textContent = `${conflict.transectName} · STP ${conflict.pageId}`;
-        body.textContent  = `STP ${conflict.pageId} differs from the team version.`;
-
-        if (diffs.length) {
-          diff.hidden = false;
-          diff.innerHTML = diffs.map(d => `
-            <div class="conflict-diff-row">
-              <span class="conflict-diff-field">${d.field}</span>
-              <span class="conflict-diff-vals">
-                <span>${d.mine}</span>
-                <span class="conflict-diff-sep">→</span>
-                <span>${d.theirs}</span>
-              </span>
-            </div>
-          `).join("");
-        } else {
-          diff.hidden = true;
-        }
-
-        acts.className = "conflict-actions four";
-        acts.innerHTML = `
-          <button class="conflict-btn primary" data-choice="keep">Keep mine</button>
-          <button class="conflict-btn" data-choice="theirs">Use theirs</button>
-          <button class="conflict-btn" data-choice="merge">Merge</button>
-          <button class="conflict-btn" data-choice="skip">Skip</button>
-        `;
+        diffEl.hidden = true;
       }
 
-      acts.onclick = (e) => {
-        const btn = e.target.closest("[data-choice]");
-        if (!btn) return;
-        acts.onclick = null;
-        modal.hidden = true;
-        onResolve(btn.dataset.choice);
-      };
+      actsEl.className = `conflict-actions ${buttons.length <= 2 ? "two" : "four"}`;
+      actsEl.innerHTML = buttons.map(b =>
+        `<button class="conflict-btn${b.primary ? " primary" : ""}" data-choice="${b.choice}">${b.label}</button>`
+      ).join("");
+
+      return new Promise(resolve => {
+        actsEl.onclick = (e) => {
+          const btn = e.target.closest("[data-choice]");
+          if (!btn) return;
+          actsEl.onclick = null;
+          modal.hidden = true;
+          resolve(btn.dataset.choice);
+        };
+      });
     }
 
-    function applyConflictResolution(conflict, choice) {
-      if (conflict.type === "remote-delete") {
-        if (choice === "theirs") {
-          delete transectStore[conflict.transectName];
-          const ts = deletedTransectSet();
-          ts.add(conflict.transectName);
-          saveDeletedTransectSet(ts);
-        }
-        // "keep" → local stays, will be re-pushed on next sync
-      } else if (conflict.type === "page-conflict") {
+    // Transect-level: Keep mine / Use theirs / Merge / Skip
+    async function resolveTransectConflict(conflict, index, total) {
+      $("conflictProgress").textContent = `${index + 1} of ${total}`;
+
+      const nConflicts = conflict.stpConflicts.length;
+      const nNew       = conflict.newRemotePages.length;
+      const parts      = [];
+      if (nConflicts) parts.push(`${nConflicts} STP${nConflicts > 1 ? "s" : ""} differ`);
+      if (nNew)       parts.push(`${nNew} new STP${nNew > 1 ? "s" : ""} from team`);
+
+      const choice = await renderConflictModal({
+        title:   conflict.transectName,
+        body:    parts.join(", ") + ".",
+        diffRows: null,
+        buttons: [
+          { choice: "keep",   label: "Keep mine",   primary: true },
+          { choice: "theirs", label: "Use theirs" },
+          { choice: "merge",  label: "Merge" },
+          { choice: "skip",   label: "Skip" }
+        ]
+      });
+
+      if (choice === "theirs") {
+        transectStore[conflict.transectName] = transectPayload(conflict.transectName, conflict.remoteSnapshot);
+
+      } else if (choice === "merge") {
+        // Auto-add new remote pages first
         const snap = transectStore[conflict.transectName];
-        if (!snap || !Array.isArray(snap.pages)) return;
-        if (choice === "theirs") {
-          snap.pages = snap.pages.map(p => p.id === conflict.pageId ? conflict.remote : p);
-        } else if (choice === "merge") {
-          snap.pages = snap.pages.map(p => p.id === conflict.pageId ? mergePage(p, conflict.remote) : p);
+        for (const p of conflict.newRemotePages) {
+          snap.pages.push(p);
         }
-        // "keep" or "skip" → local stays unchanged
+        snap.pages.sort((a, b) => a.id - b.id);
+
+        // Walk each STP conflict one at a time
+        for (let j = 0; j < conflict.stpConflicts.length; j++) {
+          const stp = conflict.stpConflicts[j];
+          await resolveStpConflict(conflict.transectName, stp, j, conflict.stpConflicts.length);
+        }
+
+      } else if (choice === "keep") {
+        // Local stays untouched
+      }
+      // "skip" → nothing
+    }
+
+    // STP-level (reached only via Merge): Keep mine / Use theirs / Skip  — no merge
+    async function resolveStpConflict(transectName, stp, index, total) {
+      $("conflictProgress").textContent = `STP ${index + 1} of ${total}`;
+
+      const diffRows = buildStpDiffRows(stp.local, stp.remote);
+
+      const choice = await renderConflictModal({
+        title:   `${transectName} · STP ${stp.pageId}`,
+        body:    `STP ${stp.pageId} differs from the team version.`,
+        diffRows,
+        buttons: [
+          { choice: "keep",   label: "Keep mine", primary: true },
+          { choice: "theirs", label: "Use theirs" },
+          { choice: "skip",   label: "Skip" }
+        ]
+      });
+
+      if (choice === "theirs") {
+        const snap = transectStore[transectName];
+        if (snap) snap.pages = snap.pages.map(p => p.id === stp.pageId ? stp.remote : p);
+      }
+      // "keep" / "skip" → local stays
+    }
+
+    function buildStpDiffRows(local, remote) {
+      const rows = [];
+      for (const layer of LAYERS) {
+        const l = local.layers?.[layer];
+        const r = remote.layers?.[layer];
+        if (!l || !r) continue;
+        const lStr = l.active ? `${l.hueNumber}${l.hueFamily} ${l.value}/${l.chroma}` : "off";
+        const rStr = r.active ? `${r.hueNumber}${r.hueFamily} ${r.value}/${r.chroma}` : "off";
+        if (lStr !== rStr) rows.push({ field: `Layer ${layer}`, mine: lStr, theirs: rStr });
+        const lA = local.artifacts?.[layer] || "—";
+        const rA = remote.artifacts?.[layer] || "—";
+        if (lA !== rA) rows.push({ field: `${layer} artifact`, mine: lA, theirs: rA });
+      }
+      if (!pageFieldsEqual(local.extents, remote.extents)) {
+        const fmt = e => LAYERS.filter(l => e?.[l] != null).map(l => `${l}:${e[l]}cm`).join(" ");
+        const lE = fmt(local.extents), rE = fmt(remote.extents);
+        if (lE !== rE) rows.push({ field: "Extents", mine: lE, theirs: rE });
+      }
+      return rows;
+    }
+
+    // Remote-delete conflict: Keep mine / Accept delete
+    async function resolveRemoteDeleteConflict(conflict, index, total) {
+      $("conflictProgress").textContent = `${index + 1} of ${total}`;
+      const choice = await renderConflictModal({
+        title:   `${conflict.transectName} · deleted remotely`,
+        body:    "A teammate deleted this transect. You still have it locally.",
+        diffRows: null,
+        buttons: [
+          { choice: "keep",   label: "Keep mine", primary: true },
+          { choice: "theirs", label: "Accept delete" }
+        ]
+      });
+
+      if (choice === "theirs") {
+        delete transectStore[conflict.transectName];
+        const ts = deletedTransectSet();
+        ts.add(conflict.transectName);
+        saveDeletedTransectSet(ts);
       }
     }
 
-    function runConflictQueue(conflicts, onComplete) {
-      let i = 0;
-      function next() {
-        if (i >= conflicts.length) { onComplete(); return; }
-        const conflict = conflicts[i++];
-        showConflictModal(conflict, i - 1, conflicts.length, (choice) => {
-          applyConflictResolution(conflict, choice);
-          next();
-        });
+    async function runConflictQueue(conflicts, onComplete) {
+      for (let i = 0; i < conflicts.length; i++) {
+        const c = conflicts[i];
+        if (c.type === "remote-delete") {
+          await resolveRemoteDeleteConflict(c, i, conflicts.length);
+        } else if (c.type === "transect-conflict") {
+          await resolveTransectConflict(c, i, conflicts.length);
+        }
       }
-      next();
+      $("conflictModal").hidden = true;
+      onComplete();
     }
 
     // ── Main sync entry point ────────────────────────────────────────
