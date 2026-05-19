@@ -166,7 +166,7 @@
 
     .transect-quickbar {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto auto;
+      grid-template-columns: minmax(0, 1.35fr) auto auto auto;
       align-items: center;
       gap: 4px;
       padding: 0 4px;
@@ -216,7 +216,13 @@
       background: var(--amber-50);
     }
 
-    @media (min-width: 760px) {
+    
+    .transect-action.danger {
+      color: var(--amber-900);
+      background: var(--amber-50);
+    }
+
+@media (min-width: 760px) {
       .transect-inline-select {
         font-size: 14px;
         padding: 10px 14px;
@@ -1276,8 +1282,8 @@
           <option value="T-02">T-02</option>
           <option value="NorthLine-03">NorthLine-03</option>
         </select>
-        <button class="transect-mini-action" id="addTransect" type="button" title="Add current transect">+</button>
-        <button class="transect-mini-action danger" id="removeTransect" type="button" title="Remove selected transect">−</button>
+        <button class="transect-action" id="addTransect" type="button" title="Add current transect">Add</button>
+        <button class="transect-action danger" id="removeTransect" type="button" title="Remove selected transect">Del</button>
         <button class="transect-action" id="syncTeam" type="button">Sync</button>
       </div>
 
@@ -2563,7 +2569,9 @@
         }
       }
       $("conflictModal").hidden = true;
-      onComplete();
+      if (typeof onComplete === "function") {
+        return await onComplete();
+      }
     }
 
     // ── Main sync entry point ────────────────────────────────────────
@@ -2571,6 +2579,7 @@
     async function syncTeamConfirmed() {
       clearSyncDiag();
       syncDiag("sync started");
+
       if (!activeTeam?.name || !activeTeam?.code || !activeTeam?.member) {
         showTeamJoinPanel();
         return;
@@ -2591,50 +2600,68 @@
         showStatus("Syncing…");
 
         const teamKey = await teamKeyFor(activeTeam.name, activeTeam.code);
-        const pushed  = await pushLocalToTeam(teamKey);
-        const rows    = await pullTeamRows(teamKey);
 
-        const { autoMerge, conflicts } = computeSyncDiff(transectStore, localTombstones, rows);
-        syncDiag("diff computed", { autoMerge: autoMerge.length, conflicts: conflicts.length });
+        async function pullAndDiff(stage) {
+          const rows = await pullTeamRows(teamKey);
+          const diff = computeSyncDiff(transectStore, deletedTransectSet(), rows);
+          syncDiag(`${stage} diff`, {
+            rows: rows.length,
+            autoMerge: diff.autoMerge.length,
+            conflicts: diff.conflicts.length
+          });
+          return { rows, ...diff };
+        }
 
-        applySyncAutoMerges(autoMerge);
-        const autoAdded = autoMerge.filter(m => m.type === "add-transect" || m.type === "add-page").length;
-
-        async function finishSync(hadConflicts) {
-          // Push resolved state back so the next sync sees the settled version
-          if (hadConflicts) {
-            try {
-              syncDiag("pushing resolved state");
-              await pushLocalToTeam(teamKey);
-            } catch (err) {
-              console.error("Post-resolution push failed:", err);
-              showStatus("Resolved locally but upload failed. Sync again.");
-              saveLocalWorkingState();
-              refreshTransectDropdown();
-              render();
-              return;
-            }
-          }
+        async function pushResolvedState(stage) {
           saveLocalWorkingState();
           refreshTransectDropdown();
-          render();
-          const parts = [];
-          if (pushed.uploaded)  parts.push(`Uploaded ${pushed.uploaded}`);
-          if (autoAdded)        parts.push(`Merged ${autoAdded}`);
-          if (conflicts.length) parts.push(`Resolved ${conflicts.length} conflict${conflicts.length > 1 ? "s" : ""}`);
-          showStatus(parts.length ? parts.join(". ") + "." : "Synced.");
+          const pushed = await pushLocalToTeam(teamKey);
+          syncDiag(`${stage} push complete`, pushed);
+          return pushed;
+        }
+
+        await pushResolvedState("initial");
+
+        let { autoMerge, conflicts } = await pullAndDiff("initial");
+        if (autoMerge.length) {
+          applySyncAutoMerges(autoMerge);
+          await pushResolvedState("auto-merge");
         }
 
         if (conflicts.length) {
           syncDiag("showing conflict queue", { count: conflicts.length });
-          runConflictQueue(conflicts, () => finishSync(true));
-        } else {
-          finishSync(false);
+          await runConflictQueue(conflicts, async () => {});
+          await pushResolvedState("conflict-resolution");
+
+          const verify = await pullAndDiff("verify");
+          if (verify.autoMerge.length) {
+            applySyncAutoMerges(verify.autoMerge);
+            await pushResolvedState("verify-auto-merge");
+          }
+
+          if (verify.conflicts.length) {
+            syncDiag("conflicts remain after resolution", { conflicts: verify.conflicts.length });
+            saveLocalWorkingState();
+            refreshTransectDropdown();
+            render();
+            showStatus("Couldn’t sync.");
+            return;
+          }
         }
 
+        saveLocalWorkingState();
+        refreshTransectDropdown();
+        render();
+        showStatus("Synced.");
+
       } catch (error) {
-        console.error("Sync failed:", error);
-        showStatus(error?.message || "Sync failed.");
+        console.error("Sync failed:", {
+          message: error?.message,
+          details: error?.details,
+          hint: error?.hint,
+          code: error?.code
+        });
+        showStatus("Couldn’t sync.");
       }
     }
 
